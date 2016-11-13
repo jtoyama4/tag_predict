@@ -11,3 +11,6 @@ The code is written in Theano under python 3.4. For efficient execution on GPUs,
 ## Update 21-09-2016
 - Optimized code for GPU execution. Training is ~2x faster now.
 - Added retrain functionality.
+
+
+
