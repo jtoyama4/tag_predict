@@ -163,6 +163,7 @@ class GRU4Rec:
     def init(self, data):
         data.sort_values([self.session_key, self.time_key], inplace=True)
         offset_sessions = np.zeros(data[self.session_key].nunique()+1, dtype=np.int32)
+        print(offset_sessions)
         offset_sessions[1:] = data.groupby(self.session_key).size().cumsum()
         np.random.seed(42)
         self.Wx, self.Wh, self.Wrz, self.Bh, self.H = [], [], [], [], []
@@ -359,6 +360,7 @@ class GRU4Rec:
             self.n_items = len(itemids)
             #self.itemidmap = pd.Series(data=np.arange(self.n_items), index=itemids)
             #data = pd.merge(data, pd.DataFrame({self.item_key:itemids, 'ItemIdx':self.itemidmap[itemids].values}), on=self.item_key, how='inner')
+            print(data)
             offset_sessions = self.init(data)
         else:
             new_item_mask = ~np.in1d(itemids, self.itemidmap.index)
@@ -392,8 +394,6 @@ class GRU4Rec:
             session_idx_arr = np.random.permutation(len(offset_sessions)-1) if self.train_random_order else np.arange(len(offset_sessions)-1)
             iters = np.arange(self.batch_size)
             maxiter = iters.max()
-            print(session_idx_arr)
-            print(iters)
             print(offset_sessions)
             
             start = offset_sessions[session_idx_arr[iters]]
@@ -401,6 +401,7 @@ class GRU4Rec:
             finished = False
             while not finished:
                 minlen = (end-start).min()
+                print(start)
                 out_idx = data.ItemIdx.values[start]
                 for i in range(minlen-1):
                     in_idx = out_idx
