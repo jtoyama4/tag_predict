@@ -1,3 +1,5 @@
 dataset
 *.pyc
 __pychache__/
+.python-version
+examples/rsc15/.python-version
