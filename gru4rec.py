@@ -64,7 +64,7 @@ class GRU4Rec:
     '''
     def __init__(self, layers, n_epochs=10, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0,
                  init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0,
-                 session_key='SessionId', item_key='ItemId', time_key='Time'):
+                 session_key='user', item_key='tag', time_key='Time'):
         self.layers = layers
         self.n_epochs = n_epochs
         self.batch_size = batch_size
@@ -352,11 +352,13 @@ class GRU4Rec:
         '''
         self.predict = None
         self.error_during_train = False
-        itemids = data[self.item_key].unique()
+        #itemids = data[self.item_key].unique()
+        itemids = data[self.item_key]
+        #itemids is a set of tags
         if not retrain:
             self.n_items = len(itemids)
-            self.itemidmap = pd.Series(data=np.arange(self.n_items), index=itemids)
-            data = pd.merge(data, pd.DataFrame({self.item_key:itemids, 'ItemIdx':self.itemidmap[itemids].values}), on=self.item_key, how='inner')
+            #self.itemidmap = pd.Series(data=np.arange(self.n_items), index=itemids)
+            #data = pd.merge(data, pd.DataFrame({self.item_key:itemids, 'ItemIdx':self.itemidmap[itemids].values}), on=self.item_key, how='inner')
             offset_sessions = self.init(data)
         else:
             new_item_mask = ~np.in1d(itemids, self.itemidmap.index)
@@ -390,6 +392,10 @@ class GRU4Rec:
             session_idx_arr = np.random.permutation(len(offset_sessions)-1) if self.train_random_order else np.arange(len(offset_sessions)-1)
             iters = np.arange(self.batch_size)
             maxiter = iters.max()
+            print(session_idx_arr)
+            print(iters)
+            print(offset_sessions)
+            
             start = offset_sessions[session_idx_arr[iters]]
             end = offset_sessions[session_idx_arr[iters]+1]
             finished = False
