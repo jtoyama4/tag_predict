@@ -357,6 +357,7 @@ class GRU4Rec:
             self.n_items = len(itemids)
             self.itemidmap = pd.Series(data=np.arange(self.n_items), index=itemids)
             data = pd.merge(data, pd.DataFrame({self.item_key:itemids, 'ItemIdx':self.itemidmap[itemids].values}), on=self.item_key, how='inner')
+            print(data)
             offset_sessions = self.init(data)
         else:
             new_item_mask = ~np.in1d(itemids, self.itemidmap.index)
@@ -387,12 +388,15 @@ class GRU4Rec:
             for i in range(len(self.layers)):
                 self.H[i].set_value(np.zeros((self.batch_size,self.layers[i]), dtype=theano.config.floatX), borrow=True)
             c = []
+            print(offset_sessions)
             session_idx_arr = np.random.permutation(len(offset_sessions)-1) if self.train_random_order else np.arange(len(offset_sessions)-1)
             iters = np.arange(self.batch_size)
             maxiter = iters.max()
+            print(session_idx_arr)
             start = offset_sessions[session_idx_arr[iters]]
             end = offset_sessions[session_idx_arr[iters]+1]
             finished = False
+            sys.exit()
             while not finished:
                 minlen = (end-start).min()
                 out_idx = data.ItemIdx.values[start]

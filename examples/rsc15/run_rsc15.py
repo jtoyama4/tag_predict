@@ -13,8 +13,8 @@ import pandas as pd
 import gru4rec
 import evaluation
 
-PATH_TO_TRAIN = '/path/to/rsc15_train_full.txt'
-PATH_TO_TEST = '/path/to/rsc15_test.txt'
+PATH_TO_TRAIN = '/home/toyama/tag_prediction/GRU4Rec/dataset/rsc15_train_full.txt'
+PATH_TO_TEST = '/home/toyama/tag_prediction/GRU4Rec/dataset/rsc15_test.txt'
 
 if __name__ == '__main__':
     data = pd.read_csv(PATH_TO_TRAIN, sep='\t', dtype={'ItemId':np.int64})
