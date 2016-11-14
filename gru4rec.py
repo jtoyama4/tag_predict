@@ -396,10 +396,14 @@ class GRU4Rec:
             start = offset_sessions[session_idx_arr[iters]]
             end = offset_sessions[session_idx_arr[iters]+1]
             finished = False
-            sys.exit()
+            
             while not finished:
                 minlen = (end-start).min()
+                print(data)
+                print(start)
                 out_idx = data.ItemIdx.values[start]
+                print(out_idx)
+                sys.exit()
                 for i in range(minlen-1):
                     in_idx = out_idx
                     out_idx = data.ItemIdx.values[start+i+1]
