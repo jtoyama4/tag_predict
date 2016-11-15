@@ -383,7 +383,7 @@ class GRU4Rec:
         updates = self.RMSprop(cost, params, full_params, sampled_params, sidxs)
         for i in range(len(self.H)):
             updates[self.H[i]] = H_new[i]
-        train_function = function(inputs=[X, Y], outputs=cost, updates=updates, allow_input_downcast=True)
+        train_function = function(inputs=[X, Y], outputs=[Y_pred,cost], updates=updates, allow_input_downcast=True)
         for epoch in range(self.n_epochs):
             for i in range(len(self.layers)):
                 self.H[i].set_value(np.zeros((self.batch_size,self.layers[i]), dtype=theano.config.floatX), borrow=True)
@@ -399,16 +399,14 @@ class GRU4Rec:
             
             while not finished:
                 minlen = (end-start).min()
-                print(data)
-                print(start)
-                out_idx = data.ItemIdx.values[start]
-                print(out_idx)
-                sys.exit()
+                out_idx = data.ItemIdx.values[start]                
                 for i in range(minlen-1):
                     in_idx = out_idx
                     out_idx = data.ItemIdx.values[start+i+1]
                     y = out_idx
-                    cost = train_function(in_idx, y)
+                    pre,cost = train_function(in_idx, y)
+                    print(pre)
+                    print(cost)
                     c.append(cost)
                     if np.isnan(cost):
                         print(str(epoch) + ': NaN error!')
