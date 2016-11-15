@@ -354,8 +354,8 @@ class GRU4Rec:
 
 
     def model(self, X, H, Y=None, drop_p_hidden=0.0):
-        Sx = T.dot(X,self.Wx[0]) #TODO
-        vec = T.dot(X,self.Wx[0]) + self.Bh[0]
+        Sx = self.Wx[0][X] #TODO
+        vec = Sx + self.Bh[0]
         rz = T.nnet.sigmoid(vec.T[self.layers[0]:] + T.dot(H[0], self.Wrz[0]).T)
         h = self.hidden_activation(T.dot(H[0] * rz[:self.layers[0]].T, self.Wh[0]) + vec.T[:self.layers[0]].T) #CHK
         z = rz[self.layers[0]:].T
@@ -373,8 +373,8 @@ class GRU4Rec:
             H_new.append(h)
             y = h
         if Y is not None:
-            Sy = self.Wy[Y]
-            SBy = self.By[Y]
+            Sy = T.dot(Y,self.Wy)
+            SBy = self.By
             y = self.final_activation(T.dot(y, Sy.T) + SBy.flatten())
             return H_new, y, [Sx, Sy, SBy]
         else:
