@@ -137,11 +137,11 @@ class GRU4Rec:
     def sigmoid(self, X):
         return T.nnet.sigmoid(X)
     #################################LOSS FUNCTIONS################################
-    def cross_entropy(self, yhat):
-        return T.cast(T.mean(-T.log(T.diag(yhat))), theano.config.floatX)
+    def cross_entropy(self, yhat,negative):
+        return T.cast(T.mean(-T.log(yhat)), theano.config.floatX)
 
-    def bpr(self, yhat):
-        return T.cast(T.mean(-T.log(T.nnet.sigmoid(T.diag(yhat)-yhat.T))), theano.config.floatX)
+    def bpr(self, yhat, negative):
+        return T.cast(T.mean(-T.log(T.nnet.sigmoid(yhat - negative))), theano.config.floatX)
 
     def top1(self, yhat):
         yhatT = yhat.T
@@ -288,9 +288,9 @@ class GRU4Rec:
         return grad / gradient_scaling
 
 
-    def RMSprop(self, cost, params, full_params, sampled_params, sidxs, epsilon=1e-6):
+    def RMSprop(self, cost, params, epsilon=1e-6):
         grads =  [T.grad(cost = cost, wrt = param) for param in params]
-        sgrads = [T.grad(cost = cost, wrt = sparam) for sparam in sampled_params]
+        #sgrads = [T.grad(cost = cost, wrt = sparam) for sparam in sampled_params]
         updates = OrderedDict()
         if self.grad_cap>0:
             norm=T.cast(T.sqrt(T.sum([T.sum([T.sum(g**2) for g in g_list]) for g_list in grads]) + T.sum([T.sum(g**2) for g in sgrads])), theano.config.floatX)
@@ -314,10 +314,12 @@ class GRU4Rec:
                     updates[p] = p + velocity2
                 else:
                     updates[p] = p * np.float32(1.0 - self.learning_rate * self.lmbd) - np.float32(self.learning_rate) * g
-        for i in range(len(sgrads)):
+        """for i in range(len(sgrads)):
+            print(i)
             g = sgrads[i]
             fullP = full_params[i]
-            sample_idx = sidxs[i]
+            #sample_idx = sidxs[i]
+            sample_idx=None
             sparam = sampled_params[i]
             if self.adapt:
                 if self.adapt == 'adagrad':
@@ -340,22 +342,28 @@ class GRU4Rec:
                 updates[fullP] = T.inc_subtensor(sparam, velocity2)
             else:
                 updates[fullP] = T.inc_subtensor(sparam, - delta)
+        """
         return updates
 
 
     def get_input(self,input_idx,y,maxlen=None):
         batch_size = len(input_idx)
         input_base = np.zeros((batch_size,maxlen),dtype="int32")
-        y_base = np.zeros((batch_size,maxlen),dtype="int32")
-        for n,(i,ii) in enumerate(zip(input_idx,y)):
+        #y_base = np.zeros((batch_size,maxlen),dtype="int32")
+        batch_idx = [] 
+        y_idx = []
+        for n,i in enumerate(input_idx):
             np.put(input_base[n],i,1)
-            np.put(y_base[n],ii,1)
-        return input_base,y_base
+        for n,row in enumerate(y):
+            for idx in row:
+                batch_idx.append(n)
+                y_idx.append(idx)
+        return input_base,batch_idx,y_idx
 
 
-    def model(self, X, H, Y=None, drop_p_hidden=0.0):
-        Sx = self.Wx[0][X] #TODO
-        vec = Sx + self.Bh[0]
+    def model(self, X, H, batch_idx, y_idx, negative_idx, drop_p_hidden=0.0):
+        #Sx = T.dot(X, self.Wx[0]) #TODO
+        vec = T.dot(X, self.Wx[0]) + self.Bh[0]
         rz = T.nnet.sigmoid(vec.T[self.layers[0]:] + T.dot(H[0], self.Wrz[0]).T)
         h = self.hidden_activation(T.dot(H[0] * rz[:self.layers[0]].T, self.Wh[0]) + vec.T[:self.layers[0]].T) #CHK
         z = rz[self.layers[0]:].T
@@ -372,17 +380,69 @@ class GRU4Rec:
             h = self.dropout(h, drop_p_hidden)
             H_new.append(h)
             y = h
-        if Y is not None:
-            Sy = T.dot(Y,self.Wy)
-            SBy = self.By
-            y = self.final_activation(T.dot(y, Sy.T) + SBy.flatten())
-            return H_new, y, [Sx, Sy, SBy]
+        if y_idx is not None:
+            #Sy = self.Wy
+            #SBy = self.By
+            y = self.final_activation(T.dot(y, self.Wy.T) + self.By.flatten())
+            #return H_new, y, [Sx, Sy, SBy]
+            return H_new, y[batch_idx,y_idx],y[batch_idx,negative_idx]
         else:
             y = self.final_activation(T.dot(y, self.Wy.T) + self.By.flatten())
-            return H_new, y, [Sx]
+            #return H_new, y, [Sx]
+            return H_new, y
 
+    def get_negatives(self, batch_idx, ys, data):
+        yy = []
+        ttt = 0
+        for ii in ys:
+            yy.append(len(ii))
+        all_size = 0
+        negative_idx = []
+        for row,count in zip(ys,yy):
+            size = count
+            all_size += size
+            if size == 0:
+                continue            
+            first = int(row[0])
+            sample_data = self.get_sample(data)
+            while first in sample_data:
+                sample_data = self.get_sample(data)
+            sample_size = len(sample_data)
+            if sample_size > size:
+                sample_data = sample_data[:size]
+            elif sample_size < size:
+                sample_data = self.compensate_sample(sample_data,size)
+            negative_idx.extend(sample_data)
+            if size != len(sample_data):
+                print("okasii")
+        if len(negative_idx) != len(batch_idx):
+            yyy = []
+            for i in ys:
+                yyy.extend(i)
+            print(yy)
+            print(yyy)
+            #print(all_size)
+            #print(ttt)
+            print("get_negatives error")
+            #print(len(batch_idx),len(yy),len(yyy),len(negative_idx))
+            #print(y,negative_idx,batch_idx)
+            sys.exit()
+        return negative_idx
+            
+    def get_sample(self, data):
+        sample_user = np.random.randint(len(data))
+        sample = data.ix[sample_user,1]
+        return sample
 
-    def fit(self, data, max_len=3636 ,retrain=False):
+    def compensate_sample(self, sample, size):
+        while len(sample) != size:
+            compen = np.random.randint(self.n_items)
+            if compen in sample:
+                continue
+            sample.append(compen)
+        return sample
+
+    def fit(self, data, max_len=3637 ,retrain=False):
         '''
         Trains the network.
 
@@ -402,6 +462,7 @@ class GRU4Rec:
         #itemids is a set of tags
         if not retrain:
             self.n_items = max_len
+            print(self.n_items)
             #self.n_items = len(itemids)
             #self.itemidmap = pd.Series(data=np.arange(self.n_items), index=itemids)
             #data = pd.merge(data, pd.DataFrame({self.item_key:itemids, 'ItemIdx':self.itemidmap[itemids].values}), on=self.item_key, how='inner')
@@ -420,17 +481,21 @@ class GRU4Rec:
             data.sort_values([self.session_key, self.time_key], inplace=True)
             offset_sessions = np.zeros(data[self.session_key].nunique()+1, dtype=np.int32)
             offset_sessions[1:] = data.groupby(self.session_key).size().cumsum()
-        X = T.imatrix()
-        Y = T.imatrix()
-        H_new, Y_pred, sampled_params = self.model(X, self.H, Y, self.dropout_p_hidden)
-        cost = self.loss_function(Y_pred)
-        params = [self.Wx[1:], self.Wh, self.Wrz, self.Bh]
-        full_params = [self.Wx[0], self.Wy, self.By]
-        sidxs = [X, Y, Y]
-        updates = self.RMSprop(cost, params, full_params, sampled_params, sidxs)
+        X = T.imatrix("x")
+        batch_idx = T.ivector("batch_idx")
+        y_idx = T.ivector("y_idx")
+        negative_idx = T.ivector("negative_idx")
+        #H_new, Y_pred, sampled_params = self.model(X, self.H, Y, self.dropout_p_hidden)
+        H_new, Y_pred, n_pred = self.model(X, self.H, batch_idx, y_idx, negative_idx, self.dropout_p_hidden)
+        cost = self.loss_function(Y_pred,n_pred)
+        params = [self.Wx, [self.Wy], [self.By], self.Wh, self.Wrz, self.Bh]
+        #full_params = [self.Wx[0], self.Wy, self.By]
+        #sidxs = [X, Y, Y]
+        #updates = self.RMSprop(cost, params, full_params, sampled_params, sidxs)
+        updates = self.RMSprop(cost, params)
         for i in range(len(self.H)):
             updates[self.H[i]] = H_new[i]
-        train_function = function(inputs=[X, Y], outputs=cost, updates=updates, allow_input_downcast=True)
+        train_function = function(inputs=[X, batch_idx, y_idx,negative_idx], outputs=cost, updates=updates, allow_input_downcast=True, on_unused_input='ignore')
         for epoch in range(self.n_epochs):
             for i in range(len(self.layers)):
                 self.H[i].set_value(np.zeros((self.batch_size,self.layers[i]), dtype=theano.config.floatX), borrow=True)
@@ -438,7 +503,7 @@ class GRU4Rec:
             session_idx_arr = np.random.permutation(len(offset_sessions)-1) if self.train_random_order else np.arange(len(offset_sessions)-1)
             iters = np.arange(self.batch_size)
             maxiter = iters.max()
-            print(offset_sessions)            
+            #print(offset_sessions)            
             start = offset_sessions[session_idx_arr[iters]]
             end = offset_sessions[session_idx_arr[iters]+1]
             finished = False
@@ -447,11 +512,12 @@ class GRU4Rec:
                 out_idx = data.tag.values[start]
                 for i in range(minlen-1):
                     in_idx = out_idx
-                    out_idx = data.tag.values[start+i+1]
-                    y = out_idx
+                    y = list(data.tag.values[start+i+1])
+                    #y = out_idx
                     #in_idx and y must be 1-of-k shape
-                    in_idx,y = get_input(in_idx,y,max_len=3636)
-                    cost = train_function(in_idx, y)
+                    x,batch_idx,y_idx = self.get_input(in_idx,y,maxlen=self.n_items)
+                    negatives = self.get_negatives(batch_idx, y, data)
+                    cost = train_function(x,batch_idx,y_idx,negatives)
                     c.append(cost)
                     if np.isnan(cost):
                         print(str(epoch) + ': NaN error!')

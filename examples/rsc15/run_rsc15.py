@@ -23,7 +23,7 @@ if __name__ == '__main__':
     data = pd.read_pickle(PATH_TO_TRAIN)
     valid = pd.read_pickle(PATH_TO_TEST)
     print('Training GRU4Rec with 100 hidden units')    
-    gru = gru4rec.GRU4Rec(layers=[100], loss='bpr', batch_size=50, dropout_p_hidden=0.5, learning_rate=0.01, momentum=0.0,final_act="sigmoid")
+    gru = gru4rec.GRU4Rec(layers=[100], loss='croww-entropy', batch_size=50, dropout_p_hidden=0.5, learning_rate=0.01, momentum=0.0,final_act=None)
     gru.fit(data)
     
     res = evaluation.evaluate_sessions_batch(gru, valid, None)

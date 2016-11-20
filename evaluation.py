@@ -8,7 +8,7 @@ Created on Fri Jun 26 17:27:26 2015
 import numpy as np
 import pandas as pd
 
-def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=100, break_ties=False, session_key='SessionId', item_key='ItemId', time_key='Time'):
+def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=100, break_ties=False, session_key='user', item_key='tag', time_key='Time'):
     '''
     Evaluates the GRU4Rec network wrt. recommendation accuracy measured by recall@N and MRR@N.
 
@@ -96,7 +96,7 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
                 end[idx] = offset_sessions[maxiter+1]
     return recall/evalutation_point_count, mrr/evalutation_point_count
     
-def evaluate_sessions(pr, test_data, train_data, items=None, cut_off=20, session_key='SessionId', item_key='ItemId', time_key='Time'):    
+def evaluate_sessions(pr, test_data, train_data, items=None, cut_off=20, session_key='user', item_key='tag', time_key='Time'):    
     '''
     Evaluates the baselines wrt. recommendation accuracy measured by recall@N and MRR@N. Has no batch evaluation capabilities. Breaks up ties.
 
