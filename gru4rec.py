@@ -62,7 +62,7 @@ class GRU4Rec:
         header of the timestamp column in the input file (default: 'Time')
 
     '''
-    def __init__(self, layers, n_epochs=10, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0,
+    def __init__(self, layers, n_epochs=1, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0,
                  init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0,
                  session_key='user', item_key='tag', time_key='Time'):
         self.layers = layers
@@ -354,6 +354,8 @@ class GRU4Rec:
         y_idx = []
         for n,i in enumerate(input_idx):
             np.put(input_base[n],i,1)
+        if y is None:
+            return input_base
         for n,row in enumerate(y):
             for idx in row:
                 batch_idx.append(n)
@@ -571,19 +573,20 @@ class GRU4Rec:
         '''
         if self.error_during_train: raise Exception
         if self.predict is None or self.predict_batch!=batch:
-            X = T.ivector()
-            Y = T.ivector()
+            X = T.imatrix('x_valid')
+            batch_idx = T.ivector('batch_idx_valid')
+            y_idx = T.ivector('y_idx_valid')
             for i in range(len(self.layers)):
                 self.H[i].set_value(np.zeros((batch,self.layers[i]), dtype=theano.config.floatX), borrow=True)
             if predict_for_item_ids is not None:
-                H_new, yhat, _ = self.model(X, self.H, Y)
+                H_new, yhat, _ = self.model(X, self.H, batch_idx, y_idx)
             else:
                 H_new, yhat, _ = self.model(X, self.H)
             updatesH = OrderedDict()
             for i in range(len(self.H)):
                 updatesH[self.H[i]] = H_new[i]
             if predict_for_item_ids is not None:
-                self.predict = function(inputs=[X, Y], outputs=yhat, updates=updatesH, allow_input_downcast=True)
+                self.predict = function(inputs=[X, batch_idx, y_idx], outputs=yhat, updates=updatesH, allow_input_downcast=True)
             else:
                 self.predict = function(inputs=[X], outputs=yhat, updates=updatesH, allow_input_downcast=True)
             self.current_session = np.ones(batch) * -1
@@ -597,9 +600,11 @@ class GRU4Rec:
             self.current_session=session_ids.copy()
         in_idxs = self.itemidmap[input_item_ids]
         if predict_for_item_ids is not None:
-            iIdxs = self.itemidmap[predict_for_item_ids]
-            preds = np.asarray(self.predict(in_idxs, iIdxs)).T
-            return pd.DataFrame(data=preds, index=predict_for_item_ids)
+            #iIdxs = self.itemidmap[predict_for_item_ids]
+            x,batch_idx,y_idx = self.get_input(in_idxs, predict_for_item_ids)
+            preds = np.asarray(self.predict(x, batch_idx, y_idx)).T
+            return pd.DataFrame(data=preds)
         else:
-            preds = np.asarray(self.predict(in_idxs)).T
-            return pd.DataFrame(data=preds, index=self.itemidmap.index)
+            x = self.get_input(in_idx,None)
+            preds = np.asarray(self.predict(x)).T
+            return pd.DataFrame(data=preds)

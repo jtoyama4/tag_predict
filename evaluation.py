@@ -72,6 +72,7 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
                 preds = pr.predict_next_batch(iters, in_idx, None, batch_size)
             if break_ties:
                 preds += np.random.rand(*preds.values.shape) * 1e-8
+            print(preds)
             preds.fillna(0, inplace=True)
             in_idx[valid_mask] = out_idx
             if items is not None:
