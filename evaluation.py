@@ -8,7 +8,7 @@ Created on Fri Jun 26 17:27:26 2015
 import numpy as np
 import pandas as pd
 
-def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=100, break_ties=False, session_key='user', item_key='tag', time_key='Time'):
+def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=100, in_dim=3637, break_ties=False, session_key='user', item_key='tag', time_key='Time'):
     '''
     Evaluates the GRU4Rec network wrt. recommendation accuracy measured by recall@N and MRR@N.
 
@@ -46,7 +46,7 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
     test_data.sort_values([session_key, time_key], inplace=True)
     offset_sessions = np.zeros(test_data[session_key].nunique()+1, dtype=np.int32)
     offset_sessions[1:] = test_data.groupby(session_key).size().cumsum()
-    evalutation_point_count = 0
+    evaluation_point_count = 0
     mrr, recall = 0.0, 0.0
     if len(offset_sessions) - 1 < batch_size:
         batch_size = len(offset_sessions) - 1
@@ -54,25 +54,32 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
     maxiter = iters.max()
     start = offset_sessions[iters]
     end = offset_sessions[iters+1]
-    in_idx = np.zeros(batch_size, dtype=np.int32)
+    in_idx = np.zeros((batch_size,in_dim),dtype=np.int32)
     np.random.seed(42)
+    accuracy = 0
     while True:
         valid_mask = iters >= 0
-        if valid_mask.sum() == 0:
+        if valid_mask.sum() != len(iters):
             break
         start_valid = start[valid_mask]
         minlen = (end[valid_mask]-start_valid).min()
-        in_idx[valid_mask] = test_data[item_key].values[start_valid]
+        #print(start_valid)
+        #print(test_data[item_key].values[start_valid])
+        #print(in_idx)
+
+        in_idx = test_data[item_key].values[start_valid]
         for i in range(minlen-1):
             out_idx = test_data[item_key].values[start_valid+i+1]
+            out_len = [len(i) for i in out_idx]
             if items is not None:
-                uniq_out = np.unique(np.array(out_idx, dtype=np.int32))
-                preds = pr.predict_next_batch(iters, in_idx, np.hstack([items, uniq_out[~np.in1d(uniq_out,items)]]), batch_size)
+                #uniq_out = np.unique(np.array(out_idx, dtype=np.int32))
+                #preds = pr.predict_next_batch(iters, in_idx, np.hstack([items, uniq_out[~np.in1d(uniq_out,items)]]), batch_size)
+                preds = pr.predict_next_batch(iters, in_idx, None, batch_size)
             else:
                 preds = pr.predict_next_batch(iters, in_idx, None, batch_size)
             if break_ties:
                 preds += np.random.rand(*preds.values.shape) * 1e-8
-            print(preds)
+            #print(preds)
             preds.fillna(0, inplace=True)
             in_idx[valid_mask] = out_idx
             if items is not None:
@@ -80,11 +87,13 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
                 targets = np.diag(preds.ix[in_idx].values)[valid_mask]
                 ranks = (others > targets).sum(axis=0) +1
             else:
-                ranks = (preds.values.T[valid_mask].T > np.diag(preds.ix[in_idx].values)[valid_mask]).sum(axis=0) + 1
-            rank_ok = ranks < cut_off
-            recall += rank_ok.sum()
-            mrr += (1.0 / ranks[rank_ok]).sum()
-            evalutation_point_count += len(ranks)
+                #ranks = (preds.values.T[valid_mask].T > np.diag(preds.ix[in_idx].values)[valid_mask]).sum(axis=0) + 1
+                tops = get_topn(preds.as_matrix(),out_len)
+            #rank_ok = ranks < cut_off
+            #recall += rank_ok.sum()
+            #mrr += (1.0 / ranks[rank_ok]).sum()
+            evaluation_point_count += 1
+            accuracy += accurate(tops,out_idx)
         start = start+minlen-1
         mask = np.arange(len(iters))[(valid_mask) & (end-start<=1)]
         for idx in mask:
@@ -95,8 +104,33 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
                 iters[idx] = maxiter
                 start[idx] = offset_sessions[maxiter]
                 end[idx] = offset_sessions[maxiter+1]
-    return recall/evalutation_point_count, mrr/evalutation_point_count
-    
+    #return recall/evalutation_point_count, mrr/evalutation_point_count
+    return accuracy / evaluation_point_count
+
+def get_topn(preds,n_list):
+    print(preds.shape)
+    preds = preds.T
+    res = []
+    for n,pred in zip(n_list,preds):
+        tops = np.argsort(pred)[-1::-1][:n]
+        res.append(tops)
+    return res
+
+def accurate(tops,out_idx):
+    acs = []
+    for y,t in zip(tops,out_idx):
+        a = 0
+        assert len(y) == len(t)
+        for i in y:
+            if i in t:
+                a += 1
+        try:
+            accuracy = float(a) / len(y)  
+        except ZeroDivisionError:
+            accuracy = 0
+        acs.append(accuracy)
+    return sum(acs)/len(acs)
+
 def evaluate_sessions(pr, test_data, train_data, items=None, cut_off=20, session_key='user', item_key='tag', time_key='Time'):    
     '''
     Evaluates the baselines wrt. recommendation accuracy measured by recall@N and MRR@N. Has no batch evaluation capabilities. Breaks up ties.

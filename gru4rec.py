@@ -581,7 +581,7 @@ class GRU4Rec:
             if predict_for_item_ids is not None:
                 H_new, yhat, _ = self.model(X, self.H, batch_idx, y_idx)
             else:
-                H_new, yhat, _ = self.model(X, self.H)
+                H_new, yhat = self.model(X, self.H,None,None,None)
             updatesH = OrderedDict()
             for i in range(len(self.H)):
                 updatesH[self.H[i]] = H_new[i]
@@ -598,13 +598,14 @@ class GRU4Rec:
                 tmp[session_change] = 0
                 self.H[i].set_value(tmp, borrow=True)
             self.current_session=session_ids.copy()
-        in_idxs = self.itemidmap[input_item_ids]
+        in_idxs = input_item_ids
+        #print("in_idxs", in_idxs)
         if predict_for_item_ids is not None:
             #iIdxs = self.itemidmap[predict_for_item_ids]
             x,batch_idx,y_idx = self.get_input(in_idxs, predict_for_item_ids)
             preds = np.asarray(self.predict(x, batch_idx, y_idx)).T
             return pd.DataFrame(data=preds)
         else:
-            x = self.get_input(in_idx,None)
+            x = self.get_input(in_idxs,None,self.n_items)
             preds = np.asarray(self.predict(x)).T
             return pd.DataFrame(data=preds)
