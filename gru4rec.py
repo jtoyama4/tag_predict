@@ -62,7 +62,7 @@ class GRU4Rec:
         header of the timestamp column in the input file (default: 'Time')
 
     '''
-    def __init__(self, layers, n_epochs=1, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0,
+    def __init__(self, layers, n_epochs=10, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0,
                  init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0,
                  session_key='user', item_key='tag', time_key='Time'):
         self.layers = layers

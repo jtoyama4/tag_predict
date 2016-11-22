@@ -108,7 +108,7 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
     return accuracy / evaluation_point_count
 
 def get_topn(preds,n_list):
-    print(preds.shape)
+    #print(preds.shape)
     preds = preds.T
     res = []
     for n,pred in zip(n_list,preds):
