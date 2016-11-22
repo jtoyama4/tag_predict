@@ -62,9 +62,11 @@ class GRU4Rec:
         header of the timestamp column in the input file (default: 'Time')
 
     '''
-    def __init__(self, layers, n_epochs=10, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0,
-                 init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0,
-                 session_key='user', item_key='tag', time_key='Time'):
+    def __init__(self, layers, tree=None,tagdic=None, tag_to_idx=None,  n_epochs=10, batch_size=50, dropout_p_hidden=0.5, print_freq = 10000, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='user', item_key='tag', time_key='Time'):
+        self.tagdic = tagdic
+        self.tree = tree
+        self.tag_to_idx = tag_to_idx
+        self.print_freq = print_freq
         self.layers = layers
         self.n_epochs = n_epochs
         self.batch_size = batch_size
@@ -345,6 +347,19 @@ class GRU4Rec:
         """
         return updates
 
+    def print_example(self,preds,ys):
+        preds = preds.T
+        res = []
+        for y,pred in zip(ys,preds):
+            n = len(y)
+            tops = np.argsort(pred)[-1::-1][:n]
+            print("Predict")
+            for i in tops:
+                print(self.tagdic[i],)
+            print("\nActual")
+            for i in y:
+                print(self.tagdic[i],)
+            print("----------------------------------")
 
     def get_input(self,input_idx,y,maxlen=None):
         batch_size = len(input_idx)
@@ -387,31 +402,33 @@ class GRU4Rec:
             #SBy = self.By
             y = self.final_activation(T.dot(y, self.Wy.T) + self.By.flatten())
             #return H_new, y, [Sx, Sy, SBy]
-            return H_new, y[batch_idx,y_idx],y[batch_idx,negative_idx]
+            return H_new, y[batch_idx,y_idx],y[batch_idx,negative_idx],y
         else:
             y = self.final_activation(T.dot(y, self.Wy.T) + self.By.flatten())
             #return H_new, y, [Sx]
             return H_new, y
 
     def get_negatives(self, batch_idx, ys, data):
-        yy = []
+        counts = []
         ttt = 0
         for ii in ys:
-            yy.append(len(ii))
+            counts.append(len(ii))
         all_size = 0
         negative_idx = []
-        for row,count in zip(ys,yy):
+        for row,count in zip(ys,counts):
             size = count
             all_size += size
             if size == 0:
                 continue            
             first = int(row[0])
             sample_data = self.get_sample(data)
-            while first in sample_data:
+            t = [i in sample_data for i in row]
+            while any(t):
                 sample_data = self.get_sample(data)
+                t = [i in sample_data for i in row]
             sample_size = len(sample_data)
             if sample_size > size:
-                sample_data = sample_data[:size]
+                sample_data = self.reduce_sample(sample_data,size)
             elif sample_size < size:
                 sample_data = self.compensate_sample(sample_data,size)
             negative_idx.extend(sample_data)
@@ -436,7 +453,48 @@ class GRU4Rec:
         sample = data.ix[sample_user,1]
         return sample
 
+    def reduce_sample(self,sample,size):
+        for tag_idx in sample:
+            tag = self.tagdic[tag_idx]
+            if self.tree.get_node(tag) is None:
+                sample.remove(tag_idx)
+                if len(sample) == size:
+                    return sample
+        sample = sample[:size]
+        return sample
+
     def compensate_sample(self, sample, size):
+        #depth = [self.tree.depth(self.tagdic[i]) for i in sample]
+        depth = []
+        for i in sample:
+            try:
+                d = self.tree.depth(self.tagdic[i])
+            except:
+                d = 0
+            depth.append(d)
+        depth_order = np.argsort(depth)[-1::-1]
+        for i in depth_order:
+            tag = self.tagdic[sample[i]]
+            try:
+                parent = self.tag_to_idx[self.tree.parent(tag).tag]
+                if parent not in sample:
+                    sample.append(parent)
+            except:
+                pass
+            if len(sample)==size:
+                return sample
+        n=0
+        for i in depth_order:
+            try:
+                siblings = self.tree.siblings(self.tagdic[i])
+                for sib in siblings:
+                    sib_idx = self.tag_to_idx[sib.tag]
+                    if sib_idx not in sample:
+                        sample.append(sib_idx)
+                    if len(sample) == size:
+                        return sample
+            except:
+                pass
         while len(sample) != size:
             compen = np.random.randint(self.n_items)
             if compen in sample:
@@ -488,7 +546,7 @@ class GRU4Rec:
         y_idx = T.ivector("y_idx")
         negative_idx = T.ivector("negative_idx")
         #H_new, Y_pred, sampled_params = self.model(X, self.H, Y, self.dropout_p_hidden)
-        H_new, Y_pred, n_pred = self.model(X, self.H, batch_idx, y_idx, negative_idx, self.dropout_p_hidden)
+        H_new, Y_pred, n_pred,sample_y = self.model(X, self.H, batch_idx, y_idx, negative_idx, self.dropout_p_hidden)
         cost = self.loss_function(Y_pred,n_pred)
         params = [self.Wx, [self.Wy], [self.By], self.Wh, self.Wrz, self.Bh]
         #full_params = [self.Wx[0], self.Wy, self.By]
@@ -497,11 +555,12 @@ class GRU4Rec:
         updates = self.RMSprop(cost, params)
         for i in range(len(self.H)):
             updates[self.H[i]] = H_new[i]
-        train_function = function(inputs=[X, batch_idx, y_idx,negative_idx], outputs=cost, updates=updates, allow_input_downcast=True, on_unused_input='ignore')
+        train_function = function(inputs=[X, batch_idx, y_idx,negative_idx], outputs=[cost,sample_y], updates=updates, allow_input_downcast=True, on_unused_input='ignore')
         for epoch in range(self.n_epochs):
             for i in range(len(self.layers)):
                 self.H[i].set_value(np.zeros((self.batch_size,self.layers[i]), dtype=theano.config.floatX), borrow=True)
             c = []
+            count = 0
             session_idx_arr = np.random.permutation(len(offset_sessions)-1) if self.train_random_order else np.arange(len(offset_sessions)-1)
             iters = np.arange(self.batch_size)
             maxiter = iters.max()
@@ -519,8 +578,11 @@ class GRU4Rec:
                     #in_idx and y must be 1-of-k shape
                     x,batch_idx,y_idx = self.get_input(in_idx,y,maxlen=self.n_items)
                     negatives = self.get_negatives(batch_idx, y, data)
-                    cost = train_function(x,batch_idx,y_idx,negatives)
+                    cost,y_sample = train_function(x,batch_idx,y_idx,negatives)
                     c.append(cost)
+                    count += 1
+                    if count % self.print_freq == 0:
+                        self.print_example(y_sample,y)
                     if np.isnan(cost):
                         print(str(epoch) + ': NaN error!')
                         self.error_during_train = True
@@ -546,6 +608,7 @@ class GRU4Rec:
                 self.error_during_train = True
                 return
             print('Epoch{}\tloss: {:.6f}'.format(epoch, avgc))
+
     def predict_next_batch(self, session_ids, input_item_ids, predict_for_item_ids=None, batch=100):
         '''
         Gives predicton scores for a selected set of items. Can be used in batch mode to predict for multiple independent events (i.e. events of different sessions) at once and thus speed up evaluation.
