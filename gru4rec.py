@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from collections import OrderedDict
 srng = RandomStreams()
+import time
 class GRU4Rec:
     '''
     GRU4Rec(layers, n_epochs=10, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='SessionId', item_key='ItemId', time_key='Time')
@@ -62,7 +63,7 @@ class GRU4Rec:
         header of the timestamp column in the input file (default: 'Time')
 
     '''
-    def __init__(self, layers, tree=None,tagdic=None, tag_to_idx=None,  n_epochs=10, batch_size=50, dropout_p_hidden=0.5, print_freq = 10000, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='user', item_key='tag', time_key='Time'):
+    def __init__(self, layers, tree=None,tagdic=None, tag_to_idx=None,  n_epochs=10, batch_size=50, dropout_p_hidden=0.5, print_freq = 1000, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='user', item_key='tag', time_key='Time'):
         self.tagdic = tagdic
         self.tree = tree
         self.tag_to_idx = tag_to_idx
@@ -183,7 +184,6 @@ class GRU4Rec:
     def init(self, data):
         data.sort_values([self.session_key, self.time_key], inplace=True)
         offset_sessions = np.zeros(data[self.session_key].nunique()+1, dtype=np.int32)
-        print(offset_sessions)
         offset_sessions[1:] = data.groupby(self.session_key).size().cumsum()
         np.random.seed(42)
         self.Wx, self.Wh, self.Wrz, self.Bh, self.H = [], [], [], [], []
@@ -415,7 +415,12 @@ class GRU4Rec:
             counts.append(len(ii))
         all_size = 0
         negative_idx = []
+        num = 0
         for row,count in zip(ys,counts):
+            if len(row) != count:
+                print("imi fumei")
+                ys[num] = row[:count]
+            num += 1
             size = count
             all_size += size
             if size == 0:
@@ -434,6 +439,7 @@ class GRU4Rec:
             negative_idx.extend(sample_data)
             if size != len(sample_data):
                 print("okasii")
+
         if len(negative_idx) != len(batch_idx):
             yyy = []
             for i in ys:
@@ -541,26 +547,27 @@ class GRU4Rec:
             data.sort_values([self.session_key, self.time_key], inplace=True)
             offset_sessions = np.zeros(data[self.session_key].nunique()+1, dtype=np.int32)
             offset_sessions[1:] = data.groupby(self.session_key).size().cumsum()
+
         X = T.imatrix("x")
         batch_idx = T.ivector("batch_idx")
         y_idx = T.ivector("y_idx")
         negative_idx = T.ivector("negative_idx")
-        #H_new, Y_pred, sampled_params = self.model(X, self.H, Y, self.dropout_p_hidden)
+
         H_new, Y_pred, n_pred,sample_y = self.model(X, self.H, batch_idx, y_idx, negative_idx, self.dropout_p_hidden)
         cost = self.loss_function(Y_pred,n_pred)
         params = [self.Wx, [self.Wy], [self.By], self.Wh, self.Wrz, self.Bh]
-        #full_params = [self.Wx[0], self.Wy, self.By]
-        #sidxs = [X, Y, Y]
-        #updates = self.RMSprop(cost, params, full_params, sampled_params, sidxs)
         updates = self.RMSprop(cost, params)
+
         for i in range(len(self.H)):
             updates[self.H[i]] = H_new[i]
         train_function = function(inputs=[X, batch_idx, y_idx,negative_idx], outputs=[cost,sample_y], updates=updates, allow_input_downcast=True, on_unused_input='ignore')
+        freqs = 0
+
         for epoch in range(self.n_epochs):
+            start_time = time.time()
             for i in range(len(self.layers)):
                 self.H[i].set_value(np.zeros((self.batch_size,self.layers[i]), dtype=theano.config.floatX), borrow=True)
             c = []
-            count = 0
             session_idx_arr = np.random.permutation(len(offset_sessions)-1) if self.train_random_order else np.arange(len(offset_sessions)-1)
             iters = np.arange(self.batch_size)
             maxiter = iters.max()
@@ -580,8 +587,8 @@ class GRU4Rec:
                     negatives = self.get_negatives(batch_idx, y, data)
                     cost,y_sample = train_function(x,batch_idx,y_idx,negatives)
                     c.append(cost)
-                    count += 1
-                    if count % self.print_freq == 0:
+                    freqs += 1
+                    if freqs % self.print_freq == 0:
                         self.print_example(y_sample,y)
                     if np.isnan(cost):
                         print(str(epoch) + ': NaN error!')
@@ -603,6 +610,8 @@ class GRU4Rec:
                     start[idx] = offset_sessions[session_idx_arr[maxiter]]
                     end[idx] = offset_sessions[session_idx_arr[maxiter]+1]
             avgc = np.mean(c)
+            end_time = time.time()
+            print(end_time-start_time)
             if np.isnan(avgc):
                 print('Epoch {}: NaN error!'.format(str(epoch)))
                 self.error_during_train = True
