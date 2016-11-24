@@ -421,7 +421,7 @@ class GRU4Rec:
                 print("imi fumei")
                 ys[num] = row[:count]
             num += 1
-            size = count
+            size = len(row)
             all_size += size
             if size == 0:
                 continue            
@@ -451,12 +451,12 @@ class GRU4Rec:
             print("get_negatives error")
             #print(len(batch_idx),len(yy),len(yyy),len(negative_idx))
             #print(y,negative_idx,batch_idx)
-            sys.exit()
+
         return negative_idx
             
     def get_sample(self, data):
         sample_user = np.random.randint(len(data))
-        sample = data.ix[sample_user,1]
+        sample = data.ix[sample_user,1].copy()
         return sample
 
     def reduce_sample(self,sample,size):
