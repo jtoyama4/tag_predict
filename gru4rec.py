@@ -53,8 +53,8 @@ class GRU4Rec:
     train_random_order : boolean
         whether to randomize the order of sessions in each epoch (default: False)
     lmbd : float
-        coefficient of the L2 regularization (default: 0.0)
-    session_key : string
+ d       coefficient of the L2 regularization (default: 0.0)
+a    session_key : string
         header of the session ID column in the input file (default: 'SessionId')
     item_key : string
         header of the item ID column in the input file (default: 'ItemId')
@@ -62,10 +62,12 @@ class GRU4Rec:
         header of the timestamp column in the input file (default: 'Time')
 
     '''
-    def __init__(self, layers, n_epochs=10, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0,
+    def __init__(self, layers, tagdic=None, n_epochs=10, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, print_freq=1000, grad_cap=0, sigma=0,
                  init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0,
                  session_key='user', item_key='tag', time_key='Time'):
         self.layers = layers
+        self.tagdic = tagdic
+        self.print_freq = print_freq
         self.n_epochs = n_epochs
         self.batch_size = batch_size
         self.dropout_p_hidden = dropout_p_hidden
@@ -344,7 +346,20 @@ class GRU4Rec:
                 updates[fullP] = T.inc_subtensor(sparam, - delta)
         """
         return updates
-
+        
+    def print_example(self,preds,ys):
+        preds = preds.T
+        res = []
+        for y,pred in zip(ys,preds):
+            n = len(y)
+            tops = np.argsort(pred)[-1::-1][:n]
+            print("Predict")
+            for i in tops:
+                print(self.tagdic[i],)
+            print("\nActual")
+            for i in y:
+                print(self.tagdic[i],)
+            print("----------------------------------")
 
     def get_input(self,input_idx,y,maxlen=None):
         batch_size = len(input_idx)
@@ -387,7 +402,7 @@ class GRU4Rec:
             #SBy = self.By
             y = self.final_activation(T.dot(y, self.Wy.T) + self.By.flatten())
             #return H_new, y, [Sx, Sy, SBy]
-            return H_new, y[batch_idx,y_idx],y[batch_idx,negative_idx]
+            return H_new, y[batch_idx,y_idx],y[batch_idx,negative_idx], y
         else:
             y = self.final_activation(T.dot(y, self.Wy.T) + self.By.flatten())
             #return H_new, y, [Sx]
@@ -433,7 +448,7 @@ class GRU4Rec:
             
     def get_sample(self, data):
         sample_user = np.random.randint(len(data))
-        sample = data.ix[sample_user,1]
+        sample = data.ix[sample_user,1].copy()
         return sample
 
     def compensate_sample(self, sample, size):
@@ -487,17 +502,16 @@ class GRU4Rec:
         batch_idx = T.ivector("batch_idx")
         y_idx = T.ivector("y_idx")
         negative_idx = T.ivector("negative_idx")
-        #H_new, Y_pred, sampled_params = self.model(X, self.H, Y, self.dropout_p_hidden)
-        H_new, Y_pred, n_pred = self.model(X, self.H, batch_idx, y_idx, negative_idx, self.dropout_p_hidden)
+
+        H_new, Y_pred, n_pred, sample_y = self.model(X, self.H, batch_idx, y_idx, negative_idx, self.dropout_p_hidden)
         cost = self.loss_function(Y_pred,n_pred)
         params = [self.Wx, [self.Wy], [self.By], self.Wh, self.Wrz, self.Bh]
-        #full_params = [self.Wx[0], self.Wy, self.By]
-        #sidxs = [X, Y, Y]
-        #updates = self.RMSprop(cost, params, full_params, sampled_params, sidxs)
         updates = self.RMSprop(cost, params)
         for i in range(len(self.H)):
             updates[self.H[i]] = H_new[i]
-        train_function = function(inputs=[X, batch_idx, y_idx,negative_idx], outputs=cost, updates=updates, allow_input_downcast=True, on_unused_input='ignore')
+        train_function = function(inputs=[X, batch_idx, y_idx,negative_idx], outputs=[cost,sample_y], updates=updates, allow_input_downcast=True, on_unused_input='ignore')
+        freqs = 0
+
         for epoch in range(self.n_epochs):
             for i in range(len(self.layers)):
                 self.H[i].set_value(np.zeros((self.batch_size,self.layers[i]), dtype=theano.config.floatX), borrow=True)
@@ -519,8 +533,11 @@ class GRU4Rec:
                     #in_idx and y must be 1-of-k shape
                     x,batch_idx,y_idx = self.get_input(in_idx,y,maxlen=self.n_items)
                     negatives = self.get_negatives(batch_idx, y, data)
-                    cost = train_function(x,batch_idx,y_idx,negatives)
+                    cost,y_sample = train_function(x,batch_idx,y_idx,negatives)
                     c.append(cost)
+                    freqs += 1
+                    if freqs % self.print_freq == 0:
+                        self.print_example(y_sample,y)
                     if np.isnan(cost):
                         print(str(epoch) + ': NaN error!')
                         self.error_during_train = True
