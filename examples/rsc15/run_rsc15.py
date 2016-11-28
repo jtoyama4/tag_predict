@@ -36,7 +36,7 @@ if __name__ == '__main__':
     n_hidden = 400
     print('Training GRU4Rec with {} hidden units'.format(n_hidden))
     
-    gru = gru4rec.GRU4Rec(tree=tree, tagdic=tagdic, tag_to_idx=_tagdic, print_freq=1000, n_epochs=50, layers=[n_hidden], loss='bpr', batch_size=50, dropout_p_hidden=0.5, learning_rate=0.01, momentum=0.0,final_act=None)
+    gru = gru4rec.GRU4Rec(tree=tree, tagdic=tagdic, tag_to_idx=_tagdic, print_freq=1000, n_epochs=20, layers=[n_hidden], loss='cross-entropy', batch_size=50, dropout_p_hidden=0.2, learning_rate=0.01, momentum=0.0,final_act='linear')
     gru.fit(valid)
     
     res = evaluation.evaluate_sessions_batch(gru, valid, None)
