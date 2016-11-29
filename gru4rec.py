@@ -63,7 +63,7 @@ class GRU4Rec:
         header of the timestamp column in the input file (default: 'Time')
 
     '''
-    def __init__(self, layers, tree=None,tagdic=None, tag_to_idx=None,  n_epochs=10, batch_size=50, dropout_p_hidden=0.5, print_freq = 1000, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='user', item_key='tag', time_key='Time'):
+    def __init__(self, layers, tree=None,tagdic=None, tag_to_idx=None,  n_epochs=10, batch_size=50, dropout_p_hidden=0.5, print_freq = 1000, learning_rate=0.05, momentum=0.0, adapt='adadelta', decay=0.9, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='user', item_key='tag', time_key='Time'):
         self.tagdic = tagdic
         self.tree = tree
         self.tag_to_idx = tag_to_idx
@@ -82,6 +82,7 @@ class GRU4Rec:
         self.item_key = item_key
         self.time_key = time_key
         self.grad_cap = grad_cap
+        self.itemtoidx={}
         self.train_random_order = train_random_order
         self.lmbd = lmbd
         if adapt == 'rmsprop': self.adapt = 'rmsprop'
@@ -143,7 +144,7 @@ class GRU4Rec:
         return T.nnet.sigmoid(X)
     #################################LOSS FUNCTIONS################################
     def cross_entropy(self, yhat, t):
-        return T.cast(-T.mean(t*T.log(T.nnet.sigmoid(yhat)) + (1-t)*T.log(T.nnet.sigmoid(1-yhat))), theano.config.floatX)
+        return T.cast(T.mean(T.nnet.categorical_crossentropy(T.nnet.softmax(yhat), t)),theano.config.floatX)
 
     def bpr(self, yhat, negative):
         return T.cast(T.mean(-T.log(T.nnet.sigmoid(yhat - negative))), theano.config.floatX)
@@ -349,21 +350,25 @@ class GRU4Rec:
         """
         return updates
 
-    def print_example(self,preds,ys):
+    def print_example(self,preds,ys,xs):
         preds = preds.T
         res = []
-        for y,pred in zip(ys,preds):
-            n = len(y)
+        for x,y,pred in zip(xs,ys,preds):
+            n = 1
             tops = np.argsort(pred)[-1::-1][:n]
+            print("x")
+            for i in [x]:
+                print(self.tagdic[i],)
             print("Predict")
             for i in tops:
                 print(self.tagdic[i],)
             print("\nActual")
-            for i in y:
+            for i in [y]:
                 print(self.tagdic[i],)
             print("----------------------------------")
 
     def get_input(self,input_idx,y,maxlen=None):
+        maxlen=self.n_items
         batch_size = len(input_idx)
         input_base = np.zeros((batch_size,maxlen),dtype="int32")
         y_base = np.zeros((batch_size,maxlen),dtype="int32")
@@ -387,7 +392,7 @@ class GRU4Rec:
         h = (1.0-z)*H[0] + z*h
         h = self.dropout(h, drop_p_hidden)
         
-H_new = [h]
+        H_new = [h]
         y = h
         for i in range(1, len(self.layers)):
             vec = T.dot(y, self.Wx[i]) + self.Bh[i]
@@ -525,12 +530,13 @@ H_new = [h]
         self.predict = None
         self.error_during_train = False
         #itemids = data[self.item_key].unique()
-        itemids = data[self.item_key]
+        itemids = data[self.item_key].unique()
+        for n,i in enumerate(sorted(itemids)):
+            self.itemtoidx[i] = n
         #itemids is a set of tags
         
         if not retrain:
             self.n_items = max_len
-            print(self.n_items)
             #self.n_items = len(itemids)
             #self.itemidmap = pd.Series(data=np.arange(self.n_items), index=itemids)
             #data = pd.merge(data, pd.DataFrame({self.item_key:itemids, 'ItemIdx':self.itemidmap[itemids].values}), on=self.item_key, how='inner')
@@ -552,7 +558,7 @@ H_new = [h]
 
         X = T.imatrix("x")
         #batch_idx = T.ivector("batch_idx")
-        y_idx = T.imatrix("y_idx")
+        y_idx = T.ivector("y_idx")
         #negative_idx = T.ivector("negative_idx")
 
         H_new, Y_pred = self.model(X, self.H, self.dropout_p_hidden)
@@ -579,19 +585,20 @@ H_new = [h]
             finished = False
             while not finished:
                 minlen = (end-start).min()
-                out_idx = data.tag.values[start]
+                out_idx = [self.itemtoidx[d] for d in data.tag.values[start]]
                 for i in range(minlen-1):
                     in_idx = out_idx
-                    y = list(data.tag.values[start+i+1])
+                    y = [self.itemtoidx[dd] for dd in data.tag.values[start+i+1]]
                     #y = out_idx
                     #in_idx and y must be 1-of-k shape
-                    x, y_idx = self.get_input(in_idx,y,maxlen=self.n_items)
+                    x, _ = self.get_input(in_idx,y,maxlen=self.n_items)
+                    y_idx = y
                     #negatives = self.get_negatives(batch_idx, y, data)
                     cost,y_sample = train_function(x,y_idx)
                     c.append(cost)
                     freqs += 1
                     if freqs % self.print_freq == 0:
-                        self.print_example(y_sample,y)
+                        self.print_example(y_sample,y,in_idx)
                     if np.isnan(cost):
                         print(str(epoch) + ': NaN error!')
                         self.error_during_train = True
