@@ -144,7 +144,8 @@ class GRU4Rec:
         return T.nnet.sigmoid(X)
     #################################LOSS FUNCTIONS################################
     def cross_entropy(self, yhat, t):
-        return T.cast(T.mean(T.nnet.categorical_crossentropy(T.nnet.softmax(yhat), t)),theano.config.floatX)
+        yhat = T.nnet.softmax(yhat)
+        return T.cast(T.mean(-T.log(yhat)[T.arange(yhat.shape[0]),t]),theano.config.floatX)
 
     def bpr(self, yhat, negative):
         return T.cast(T.mean(-T.log(T.nnet.sigmoid(yhat - negative))), theano.config.floatX)
@@ -301,24 +302,23 @@ class GRU4Rec:
             norm=T.cast(T.sqrt(T.sum([T.sum([T.sum(g**2) for g in g_list]) for g_list in grads]) + T.sum([T.sum(g**2) for g in sgrads])), theano.config.floatX)
             grads = [[T.switch(T.ge(norm, self.grad_cap), g*self.grad_cap/norm, g) for g in g_list] for g_list in grads]
             sgrads = [T.switch(T.ge(norm, self.grad_cap), g*self.grad_cap/norm, g) for g in sgrads]
-        for p_list, g_list in zip(params, grads):
-            for p, g in zip(p_list, g_list):
-                if self.adapt:
-                    if self.adapt == 'adagrad':
-                        g = self.adagrad(p, g, updates)
-                    if self.adapt == 'rmsprop':
-                        g = self.rmsprop(p, g, updates)
-                    if self.adapt == 'adadelta':
-                        g = self.adadelta(p, g, updates)
-                    if self.adapt == 'adam':
-                        g = self.adam(p, g, updates)
-                if self.momentum > 0:
-                    velocity = theano.shared(p.get_value(borrow=False) * 0., borrow=True)
-                    velocity2 = self.momentum * velocity - np.float32(self.learning_rate) * (g + self.lmbd * p)
-                    updates[velocity] = velocity2
-                    updates[p] = p + velocity2
-                else:
-                    updates[p] = p * np.float32(1.0 - self.learning_rate * self.lmbd) - np.float32(self.learning_rate) * g
+        for p, g in zip(params, grads):
+            if self.adapt:
+                if self.adapt == 'adagrad':
+                    g = self.adagrad(p, g, updates)
+                if self.adapt == 'rmsprop':
+                    g = self.rmsprop(p, g, updates)
+                if self.adapt == 'adadelta':
+                    g = self.adadelta(p, g, updates)
+                if self.adapt == 'adam':
+                    g = self.adam(p, g, updates)
+            if self.momentum > 0:
+                velocity = theano.shared(p.get_value(borrow=False) * 0., borrow=True)
+                velocity2 = self.momentum * velocity - np.float32(self.learning_rate) * (g + self.lmbd * p)
+                updates[velocity] = velocity2
+                updates[p] = p + velocity2
+            else:
+                updates[p] = p * np.float32(1.0 - self.learning_rate * self.lmbd) - np.float32(self.learning_rate) * g
         """for i in range(len(sgrads)):
             print(i)
             g = sgrads[i]
@@ -359,7 +359,7 @@ class GRU4Rec:
             print("x")
             for i in [x]:
                 print(self.tagdic[i],)
-            print("Predict")
+            print("\nPredict")
             for i in tops:
                 print(self.tagdic[i],)
             print("\nActual")
@@ -410,7 +410,7 @@ class GRU4Rec:
             #return H_new, y, [Sx, Sy, SBy]
             return H_new, y
         else:
-            y = self.final_activation(T.dot(y, self.Wy.T) + self.By.flatten())
+            y = self.final_activation(T.dot(y, self.Wy) + self.By.flatten())
             #return H_new, y, [Sx]
             return H_new, y
 
@@ -563,11 +563,12 @@ class GRU4Rec:
 
         H_new, Y_pred = self.model(X, self.H, self.dropout_p_hidden)
         cost = self.loss_function(Y_pred,y_idx)
-        params = [self.Wx, [self.Wy], [self.By], self.Wh, self.Wrz, self.Bh]
+        params = [self.Wx[0], self.Wy, self.By, self.Wh[0], self.Wrz[0], self.Bh[0]]
         updates = self.RMSprop(cost, params)
 
         for i in range(len(self.H)):
             updates[self.H[i]] = H_new[i]
+
         train_function = function(inputs=[X, y_idx], outputs=[cost,Y_pred], updates=updates, allow_input_downcast=True, on_unused_input='ignore')
         freqs = 0
 
@@ -588,13 +589,13 @@ class GRU4Rec:
                 out_idx = [self.itemtoidx[d] for d in data.tag.values[start]]
                 for i in range(minlen-1):
                     in_idx = out_idx
-                    y = [self.itemtoidx[dd] for dd in data.tag.values[start+i+1]]
-                    #y = out_idx
+                    out_idx = [self.itemtoidx[dd] for dd in data.tag.values[start+i+1]]
+                    y = out_idx
+                    
                     #in_idx and y must be 1-of-k shape
                     x, _ = self.get_input(in_idx,y,maxlen=self.n_items)
-                    y_idx = y
                     #negatives = self.get_negatives(batch_idx, y, data)
-                    cost,y_sample = train_function(x,y_idx)
+                    cost,y_sample = train_function(x,y)
                     c.append(cost)
                     freqs += 1
                     if freqs % self.print_freq == 0:
