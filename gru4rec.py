@@ -679,7 +679,7 @@ class GRU4Rec:
                 tmp[session_change] = 0
                 self.H[i].set_value(tmp, borrow=True)
             self.current_session=session_ids.copy()
-        in_idxs = input_item_ids
+        in_idxs = [self.itemtoidx[d] for d in input_item_ids]
         #print("in_idxs", in_idxs)
         if predict_for_item_ids is not None:
             #iIdxs = self.itemidmap[predict_for_item_ids]
@@ -689,4 +689,5 @@ class GRU4Rec:
         else:
             x = self.get_input(in_idxs,None,self.n_items)
             preds = np.asarray(self.predict(x)).T
+            self.print_example(preds,out_idxs,in_idxs)
             return pd.DataFrame(data=preds)
