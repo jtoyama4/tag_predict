@@ -8,7 +8,7 @@ Created on Fri Jun 26 17:27:26 2015
 import numpy as np
 import pandas as pd
 
-def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=100, break_ties=False, session_key='SessionId', item_key='ItemId', time_key='Time'):
+def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=100, break_ties=False, session_key='user', item_key='tag', time_key='Time'):
     '''
     Evaluates the GRU4Rec network wrt. recommendation accuracy measured by recall@N and MRR@N.
 
@@ -69,7 +69,7 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
                 uniq_out = np.unique(np.array(out_idx, dtype=np.int32))
                 preds = pr.predict_next_batch(iters, in_idx, np.hstack([items, uniq_out[~np.in1d(uniq_out,items)]]), batch_size)
             else:
-                preds = pr.predict_next_batch(iters, in_idx, None, batch_size)
+                preds = pr.predict_next_batch(iters, in_idx,out_idx, None, batch_size)
             if break_ties:
                 preds += np.random.rand(*preds.values.shape) * 1e-8
             preds.fillna(0, inplace=True)

@@ -62,9 +62,12 @@ class GRU4Rec:
         header of the timestamp column in the input file (default: 'Time')
 
     '''
-    def __init__(self, layers, n_epochs=10, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0,
+    def __init__(self, layers, tagdic=None, tag_to_idx=None, print_freq=100,n_epochs=10, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0,
                  init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0,
-                 session_key='SessionId', item_key='ItemId', time_key='Time'):
+                 session_key='user', item_key='tag', time_key='Time'):
+        self.tagdic = tagdic
+        self.tag_to_idx = tag_to_idx
+        self.print_freq = print_freq
         self.layers = layers
         self.n_epochs = n_epochs
         self.batch_size = batch_size
@@ -310,6 +313,24 @@ class GRU4Rec:
             else:
                 updates[fullP] = T.inc_subtensor(sparam, - delta)
         return updates
+
+    def print_example(self,preds,ys,xs):
+        preds = preds.T
+        res = []
+        for x,y,pred in zip(xs,ys,preds):
+            n = 1
+            tops = np.argsort(pred)[-1::-1][:n]
+            print("x")
+            for i in [x]:
+                print(self.tagdic[i],)
+            print("\nPredict")
+            for i in tops:
+                print(self.tagdic[i],)
+            print("\nActual")
+            for i in [y]:
+                print(self.tagdic[i],)
+            print("----------------------------------")
+
     def model(self, X, H, Y=None, drop_p_hidden=0.0):
         Sx = self.Wx[0][X] #TODO
         vec = Sx + self.Bh[0]
@@ -337,6 +358,7 @@ class GRU4Rec:
         else:
             y = self.final_activation(T.dot(y, self.Wy.T) + self.By.flatten())
             return H_new, y, [Sx]
+
     def fit(self, data, retrain=False):
         '''
         Trains the network.
@@ -352,12 +374,11 @@ class GRU4Rec:
         '''
         self.predict = None
         self.error_during_train = False
-        itemids = data[self.item_key].unique()
+        itemids = sorted(data[self.item_key].unique())
         if not retrain:
             self.n_items = len(itemids)
             self.itemidmap = pd.Series(data=np.arange(self.n_items), index=itemids)
             data = pd.merge(data, pd.DataFrame({self.item_key:itemids, 'ItemIdx':self.itemidmap[itemids].values}), on=self.item_key, how='inner')
-            print(data)
             offset_sessions = self.init(data)
         else:
             new_item_mask = ~np.in1d(itemids, self.itemidmap.index)
@@ -388,11 +409,9 @@ class GRU4Rec:
             for i in range(len(self.layers)):
                 self.H[i].set_value(np.zeros((self.batch_size,self.layers[i]), dtype=theano.config.floatX), borrow=True)
             c = []
-            print(offset_sessions)
             session_idx_arr = np.random.permutation(len(offset_sessions)-1) if self.train_random_order else np.arange(len(offset_sessions)-1)
             iters = np.arange(self.batch_size)
             maxiter = iters.max()
-            print(session_idx_arr)
             start = offset_sessions[session_idx_arr[iters]]
             end = offset_sessions[session_idx_arr[iters]+1]
             finished = False
@@ -405,8 +424,6 @@ class GRU4Rec:
                     out_idx = data.ItemIdx.values[start+i+1]
                     y = out_idx
                     pre,cost = train_function(in_idx, y)
-                    print(pre)
-                    print(cost)
                     c.append(cost)
                     if np.isnan(cost):
                         print(str(epoch) + ': NaN error!')
@@ -433,7 +450,7 @@ class GRU4Rec:
                 self.error_during_train = True
                 return
             print('Epoch{}\tloss: {:.6f}'.format(epoch, avgc))
-    def predict_next_batch(self, session_ids, input_item_ids, predict_for_item_ids=None, batch=100):
+    def predict_next_batch(self, session_ids, input_item_ids, out_idx, predict_for_item_ids=None, batch=100):
         '''
         Gives predicton scores for a selected set of items. Can be used in batch mode to predict for multiple independent events (i.e. events of different sessions) at once and thus speed up evaluation.
 
@@ -485,10 +502,15 @@ class GRU4Rec:
                 self.H[i].set_value(tmp, borrow=True)
             self.current_session=session_ids.copy()
         in_idxs = self.itemidmap[input_item_ids]
+        ys = self.itemidmap[out_idx]
         if predict_for_item_ids is not None:
             iIdxs = self.itemidmap[predict_for_item_ids]
             preds = np.asarray(self.predict(in_idxs, iIdxs)).T
             return pd.DataFrame(data=preds, index=predict_for_item_ids)
         else:
             preds = np.asarray(self.predict(in_idxs)).T
+            xs = np.array(in_idxs.values.flatten())
+            ys = np.array(ys.values.flatten())
+
+            self.print_example(preds,ys,xs)
             return pd.DataFrame(data=preds, index=self.itemidmap.index)
