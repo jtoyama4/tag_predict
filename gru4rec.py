@@ -314,18 +314,17 @@ class GRU4Rec:
                         g = self.adadelta(p, g, updates)
                     if self.adapt == 'adam':
                         g = self.adam(p, g, updates)
-                    if self.momentum > 0:
-                        velocity = theano.shared(p.get_value(borrow=False) * 0., borrow=True)
-                        velocity2 = self.momentum * velocity - np.float32(self.learning_rate) * (g + self.lmbd * p)
-                        updates[velocity] = velocity2
-                        updates[p] = p + velocity2
-                    else:
-                        updates[p] = p * np.float32(1.0 - self.learning_rate * self.lmbd) - np.float32(self.learning_rate) * g
+                if self.momentum > 0:
+                    velocity = theano.shared(p.get_value(borrow=False) * 0., borrow=True)
+                    velocity2 = self.momentum * velocity - np.float32(self.learning_rate) * (g + self.lmbd * p)
+                    updates[velocity] = velocity2
+                    updates[p] = p + velocity2
+                else:
+                    updates[p] = p * np.float32(1.0 - self.learning_rate * self.lmbd) - np.float32(self.learning_rate) * g
         for i in range(len(sgrads)):
             g = sgrads[i]
             fullP = full_params[i]
-            #sample_idx = sidxs[i]
-            sample_idx=None
+            sample_idx = sidxs[i]
             sparam = sampled_params[i]
             if self.adapt:
                 if self.adapt == 'adagrad':
@@ -348,8 +347,8 @@ class GRU4Rec:
                 updates[fullP] = T.inc_subtensor(sparam, velocity2)
             else:
                 updates[fullP] = T.inc_subtensor(sparam, - delta)
-        
         return updates
+
 
     def print_example(self,preds,ys,xs):
         preds = preds.T
@@ -384,7 +383,7 @@ class GRU4Rec:
         return input_base,y_base
 
     def model(self, X, H, Y=None, drop_p_hidden=0.0):
-        Sx = self.Wx[0][X]#TODO
+        Sx = self.Wx[0][X] #TODO
         #vec = T.dot(X, self.Wx[0]) + self.Bh[0]
         vec = Sx + self.Bh[0]
         rz = T.nnet.sigmoid(vec.T[self.layers[0]:] + T.dot(H[0], self.Wrz[0]).T)
@@ -557,24 +556,23 @@ class GRU4Rec:
             offset_sessions[1:] = data.groupby(self.session_key).size().cumsum()
 
         #X = T.imatrix("x")
-        X = T.ivector("x")
+        X = T.ivector("X")
         #batch_idx = T.ivector("batch_idx")
-        Y = T.ivector("y_idx")
+        Y = T.ivector("Y")
         #negative_idx = T.ivector("negative_idx")
-
-        H_new, Y_pred, sampled_params = self.model(X, self.H, Y=Y, drop_p_hidden=self.dropout_p_hidden)
+        
+        H_new, Y_pred, sampled_params = self.model(X, self.H, Y, self.dropout_p_hidden)
         cost = self.loss_function(Y_pred)
         #params = [self.Wx[0], self.Wy, self.By, self.Wh[0], self.Wrz[0], self.Bh[0]]
         params = [self.Wx[1:], self.Wh, self.Wrz, self.Bh]
         full_params = [self.Wx[0], self.Wy, self.By]
         sidxs = [X, Y, Y]
         updates = self.RMSprop(cost, params, full_params, sampled_params, sidxs)
-        #updates = self.RMSprop(cost, params)
-
         for i in range(len(self.H)):
             updates[self.H[i]] = H_new[i]
 
         train_function = function(inputs=[X, Y], outputs=[cost,Y_pred], updates=updates, allow_input_downcast=True, on_unused_input='ignore')
+        #train_function = function(inputs=[X, Y], outputs=[cost, Y_pred], allow_input_downcast=True, on_unused_input='ignore')
         freqs = 0
 
         for epoch in range(self.n_epochs):
@@ -589,20 +587,21 @@ class GRU4Rec:
             start = offset_sessions[session_idx_arr[iters]]
             end = offset_sessions[session_idx_arr[iters]+1]
             finished = False
+
             while not finished:
                 minlen = (end-start).min()
-                out_idx = [self.itemtoidx[d] for d in data.tag.values[start]]
+                out_idx = np.array([self.itemtoidx[d] for d in data.tag.values[start]],dtype="int32")
                 for i in range(minlen-1):
                     in_idx = out_idx
-                    out_idx = [self.itemtoidx[dd] for dd in data.tag.values[start+i+1]]
+                    out_idx = np.array([self.itemtoidx[dd] for dd in data.tag.values[start+i+1]],dtype="int32")
                     y = out_idx
                     
                     #in_idx and y must be 1-of-k shape
-                    #x, _ = self.get_input(in_idx,y,maxlen=self.n_items)
-                    x = in_idx
-                    print(x,y)
+                    #x, _ = self.get_input(in_idx,y,maxlen=self.n_items
                     #negatives = self.get_negatives(batch_idx, y, data)
-                    cost,y_sample = train_function(x,y)
+                    
+                    cost,y_sample = train_function(in_idx,y)
+                    
                     c.append(cost)
                     freqs += 1
                     if freqs % self.print_freq == 0:
