@@ -146,7 +146,7 @@ class GRU4Rec:
     def cross_entropy(self, yhat):
         #yhat = T.nnet.softmax(yhat)
         #return T.cast(T.mean(-T.log(yhat)[T.arange(yhat.shape[0]),t]),theano.config.floatX)
-        return T.cast(T.mean(-T.log(T.diag(yhat))), theano.config.floatX)
+        return T.cast(T.mean(-T.log(T.diag(T.nnet.sigmoid(yhat)))), theano.config.floatX)
 
     def bpr(self, yhat, negative):
         return T.cast(T.mean(-T.log(T.nnet.sigmoid(yhat - negative))), theano.config.floatX)
@@ -613,7 +613,6 @@ class GRU4Rec:
                 start = start+minlen-1
                 mask = np.arange(len(iters))[(end-start)<=1]
                 for idx in mask:
-                    print(idx)
                     maxiter += 1
                     if maxiter >= len(offset_sessions)-1:
                         finished = True
@@ -662,20 +661,20 @@ class GRU4Rec:
         '''
         if self.error_during_train: raise Exception
         if self.predict is None or self.predict_batch!=batch:
-            X = T.imatrix('x_valid')
+            X = T.ivector('x_valid')
             #batch_idx = T.ivector('batch_idx_valid')
-            y_idx = T.imatrix('y_idx_valid')
+            y_idx = T.ivector('y_idx_valid')
             for i in range(len(self.layers)):
                 self.H[i].set_value(np.zeros((batch,self.layers[i]), dtype=theano.config.floatX), borrow=True)
             if predict_for_item_ids is not None:
                 H_new, yhat, _ = self.model(X, self.H, y_idx)
             else:
-                H_new, yhat = self.model(X, self.H,None)
+                H_new, yhat,_ = self.model(X, self.H,None)
             updatesH = OrderedDict()
             for i in range(len(self.H)):
                 updatesH[self.H[i]] = H_new[i]
             if predict_for_item_ids is not None:
-                self.predict = function(inputs=[X, batch_idx, y_idx], outputs=yhat, updates=updatesH, allow_input_downcast=True)
+                self.predict = function(inputs=[X, y_idx], outputs=yhat, updates=updatesH, allow_input_downcast=True)
             else:
                 self.predict = function(inputs=[X], outputs=yhat, updates=updatesH, allow_input_downcast=True)
             self.current_session = np.ones(batch) * -1
@@ -696,10 +695,7 @@ class GRU4Rec:
             preds = np.asarray(self.predict(x, batch_idx, y_idx)).T
             return pd.DataFrame(data=preds)
         else:
-            x = self.get_input(in_idxs,None,self.n_items)
-            print(x.shape)
-            preds = np.asarray(self.predict(x)).T
-            print(preds.shape)
-            print(preds)
-            self.print_example(preds,outs,in_idxs)
+            #x = self.get_input(in_idxs,None,self.n_items)
+            preds = np.asarray(self.predict(in_idxs)).T
+            #self.print_example(preds,outs,in_idxs)
             return pd.DataFrame(data=preds)
