@@ -47,6 +47,7 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
     offset_sessions = np.zeros(test_data[session_key].nunique()+1, dtype=np.int32)
     offset_sessions[1:] = test_data.groupby(session_key).size().cumsum()
     evaluation_point_count = 0
+    evaluation_point_count_acc = 0
     mrr, recall = 0.0, 0.0
     if len(offset_sessions) - 1 < batch_size:
         batch_size = len(offset_sessions) - 1
@@ -70,7 +71,7 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
         for i in range(minlen-1):
             out_idx = test_data[item_key].values[start_valid+i+1]
             out_len = [len([i]) for i in out_idx]
-            
+
             if items is not None:
                 #uniq_out = np.unique(np.array(out_idx, dtype=np.int32))
                 #preds = pr.predict_next_batch(iters, in_idx, np.hstack([items, uniq_out[~np.in1d(uniq_out,items)]]), batch_size)
@@ -93,8 +94,8 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
             recall += rank_ok.sum()
             mrr += (1.0 / ranks[rank_ok]).sum()
             evaluation_point_count += len(ranks)
-            #evaluation_point_count += 1
-            #accuracy += accurate(tops,out_idx)
+            evaluation_point_count_acc += 1
+            accuracy += accurate(tops,out_idx)
         start = start+minlen-1
         mask = np.arange(len(iters))[(valid_mask) & (end-start<=1)]
         for idx in mask:
@@ -105,11 +106,10 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
                 iters[idx] = maxiter
                 start[idx] = offset_sessions[maxiter]
                 end[idx] = offset_sessions[maxiter+1]
-    return recall/evaluation_point_count
-    #return accuracy / evaluation_point_count
+    #return recall/evaluation_point_count
+    return accuracy / evaluation_point_count_acc
 
 def get_topn(preds,n_list):
-    #print(preds.shape)
     preds = preds.T
     res = []
     for n,pred in zip(n_list,preds):
@@ -120,6 +120,8 @@ def get_topn(preds,n_list):
 def accurate(tops,out_idx):
     acs = []
     for y,t in zip(tops,out_idx):
+        y = [y]
+        t = [t]
         a = 0
         assert len(y) == len(t)
         for i in y:

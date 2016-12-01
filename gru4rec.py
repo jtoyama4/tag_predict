@@ -143,10 +143,10 @@ class GRU4Rec:
     def sigmoid(self, X):
         return T.nnet.sigmoid(X)
     #################################LOSS FUNCTIONS################################
-    def cross_entropy(self, yhat):
+    def cross_entropy(self, yhat,t):
         #yhat = T.nnet.softmax(yhat)
-        #return T.cast(T.mean(-T.log(yhat)[T.arange(yhat.shape[0]),t]),theano.config.floatX)
-        return T.cast(T.mean(-T.log(T.diag(T.nnet.sigmoid(yhat)))), theano.config.floatX)
+        return T.cast(T.mean(-T.log(yhat)[T.arange(yhat.shape[0]),t]),theano.config.floatX)
+        #return T.cast(T.mean(-T.log(T.diag(T.nnet.sigmoid(yhat)))), theano.config.floatX)
 
     def bpr(self, yhat, negative):
         return T.cast(T.mean(-T.log(T.nnet.sigmoid(yhat - negative))), theano.config.floatX)
@@ -294,10 +294,9 @@ class GRU4Rec:
         gradient_scaling = T.cast(T.sqrt(acc_new + epsilon), theano.config.floatX)
         return grad / gradient_scaling
 
-
-    def RMSprop(self, cost, params, full_params, sampled_params, sidxs, epsilon=1e-6):
+    def RMSprop(self, cost, params, epsilon=1e-6):
         grads =  [T.grad(cost = cost, wrt = param) for param in params]
-        sgrads = [T.grad(cost = cost, wrt = sparam) for sparam in sampled_params]
+        #sgrads = [T.grad(cost = cost, wrt = sparam) for sparam in sampled_params]
         updates = OrderedDict()
         if self.grad_cap>0:
             norm=T.cast(T.sqrt(T.sum([T.sum([T.sum(g**2) for g in g_list]) for g_list in grads]) + T.sum([T.sum(g**2) for g in sgrads])), theano.config.floatX)
@@ -321,10 +320,12 @@ class GRU4Rec:
                     updates[p] = p + velocity2
                 else:
                     updates[p] = p * np.float32(1.0 - self.learning_rate * self.lmbd) - np.float32(self.learning_rate) * g
-        for i in range(len(sgrads)):
+        """for i in range(len(sgrads)):
+            print(i)
             g = sgrads[i]
             fullP = full_params[i]
-            sample_idx = sidxs[i]
+            #sample_idx = sidxs[i]
+            sample_idx=None
             sparam = sampled_params[i]
             if self.adapt:
                 if self.adapt == 'adagrad':
@@ -347,8 +348,9 @@ class GRU4Rec:
                 updates[fullP] = T.inc_subtensor(sparam, velocity2)
             else:
                 updates[fullP] = T.inc_subtensor(sparam, - delta)
+        """
         return updates
-
+    
 
     def print_example(self,preds,ys,xs):
         preds = preds.T
@@ -383,9 +385,9 @@ class GRU4Rec:
         return input_base,y_base
 
     def model(self, X, H, Y=None, drop_p_hidden=0.0):
-        Sx = self.Wx[0][X] #TODO
-        #vec = T.dot(X, self.Wx[0]) + self.Bh[0]
-        vec = Sx + self.Bh[0]
+        #Sx = self.Wx[0][X] #TODO
+        vec = T.dot(X, self.Wx[0]) + self.Bh[0]
+        #vec = Sx + self.Bh[0]
         rz = T.nnet.sigmoid(vec.T[self.layers[0]:] + T.dot(H[0], self.Wrz[0]).T)
         h = self.hidden_activation(T.dot(H[0] * rz[:self.layers[0]].T, self.Wh[0]) + vec.T[:self.layers[0]].T) #CHK
         z = rz[self.layers[0]:].T
@@ -411,7 +413,7 @@ class GRU4Rec:
         else:
             y = self.final_activation(T.dot(y, self.Wy.T) + self.By.flatten())
             #return H_new, y, [Sx]
-            return H_new, y, [Sx]
+            return H_new, y
 
     def get_negatives(self, batch_idx, ys, data):
         counts = []
@@ -555,19 +557,20 @@ class GRU4Rec:
             offset_sessions = np.zeros(data[self.session_key].nunique()+1, dtype=np.int32)
             offset_sessions[1:] = data.groupby(self.session_key).size().cumsum()
 
-        #X = T.imatrix("x")
-        X = T.ivector("X")
+        X = T.imatrix("x")
+        #X = T.ivector("X")
         #batch_idx = T.ivector("batch_idx")
         Y = T.ivector("Y")
         #negative_idx = T.ivector("negative_idx")
         
-        H_new, Y_pred, sampled_params = self.model(X, self.H, Y, self.dropout_p_hidden)
-        cost = self.loss_function(Y_pred)
+        #H_new, Y_pred, sampled_params = self.model(X, self.H, None, self.dropout_p_hidden)
+        H_new, Y_pred = self.model(X, self.H, None, self.dropout_p_hidden)
+        cost = self.loss_function(Y_pred,Y)
         #params = [self.Wx[0], self.Wy, self.By, self.Wh[0], self.Wrz[0], self.Bh[0]]
-        params = [self.Wx[1:], self.Wh, self.Wrz, self.Bh]
-        full_params = [self.Wx[0], self.Wy, self.By]
-        sidxs = [X, Y, Y]
-        updates = self.RMSprop(cost, params, full_params, sampled_params, sidxs)
+        params = [self.Wx, [self.Wy], [self.By], self.Wh, self.Wrz, self.Bh]
+        #full_params = [self.Wx[0], self.Wy, self.By]
+        #sidxs = [X, Y, Y]
+        updates = self.RMSprop(cost, params)
         for i in range(len(self.H)):
             updates[self.H[i]] = H_new[i]
 
@@ -597,11 +600,9 @@ class GRU4Rec:
                     y = out_idx
                     
                     #in_idx and y must be 1-of-k shape
-                    #x, _ = self.get_input(in_idx,y,maxlen=self.n_items
+                    x, _ = self.get_input(in_idx,y,maxlen=self.n_items)
                     #negatives = self.get_negatives(batch_idx, y, data)
-                    
-                    cost,y_sample = train_function(in_idx,y)
-                    
+                    cost, y_sample = train_function(x,y)
                     c.append(cost)
                     freqs += 1
                     if freqs % self.print_freq == 0:
@@ -661,7 +662,7 @@ class GRU4Rec:
         '''
         if self.error_during_train: raise Exception
         if self.predict is None or self.predict_batch!=batch:
-            X = T.ivector('x_valid')
+            X = T.imatrix('x_valid')
             #batch_idx = T.ivector('batch_idx_valid')
             y_idx = T.ivector('y_idx_valid')
             for i in range(len(self.layers)):
@@ -669,7 +670,8 @@ class GRU4Rec:
             if predict_for_item_ids is not None:
                 H_new, yhat, _ = self.model(X, self.H, y_idx)
             else:
-                H_new, yhat,_ = self.model(X, self.H,None)
+                #H_new, yhat,_ = self.model(X, self.H,None)
+                H_new, yhat = self.model(X, self.H, Y=None)
             updatesH = OrderedDict()
             for i in range(len(self.H)):
                 updatesH[self.H[i]] = H_new[i]
@@ -687,7 +689,7 @@ class GRU4Rec:
                 self.H[i].set_value(tmp, borrow=True)
             self.current_session=session_ids.copy()
         in_idxs = [self.itemtoidx[d] for d in input_item_ids]
-        outs = [self.itemtoidx[d] for d in out_idxs]
+        outs = [self.itemtoidx[int(d)] for d in out_idxs]
         #print("in_idxs", in_idxs)
         if predict_for_item_ids is not None:
             #iIdxs = self.itemidmap[predict_for_item_ids]
@@ -695,7 +697,7 @@ class GRU4Rec:
             preds = np.asarray(self.predict(x, batch_idx, y_idx)).T
             return pd.DataFrame(data=preds)
         else:
-            #x = self.get_input(in_idxs,None,self.n_items)
-            preds = np.asarray(self.predict(in_idxs)).T
-            #self.print_example(preds,outs,in_idxs)
+            x = self.get_input(in_idxs,None,self.n_items)
+            preds = np.asarray(self.predict(x)).T
+            self.print_example(preds,outs,in_idxs)
             return pd.DataFrame(data=preds)
