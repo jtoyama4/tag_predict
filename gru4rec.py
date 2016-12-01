@@ -603,14 +603,16 @@ class GRU4Rec:
                     x, _ = self.get_input(in_idx,y,maxlen=self.n_items)
                     #negatives = self.get_negatives(batch_idx, y, data)
                     cost, y_sample = train_function(x,y)
-                    c.append(cost)
+                    #c.append(cost)
                     freqs += 1
                     if freqs % self.print_freq == 0:
                         self.print_example(y_sample,y,in_idx)
                     if np.isnan(cost):
                         print(str(epoch) + ': NaN error!')
-                        self.error_during_train = True
-                        return
+                        #self.error_during_train = True
+                        continue
+                        #return
+                    c.append(cost)
                 start = start+minlen-1
                 mask = np.arange(len(iters))[(end-start)<=1]
                 for idx in mask:
