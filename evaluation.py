@@ -54,7 +54,7 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
     maxiter = iters.max()
     start = offset_sessions[iters]
     end = offset_sessions[iters+1]
-    in_idx = np.zeros((batch_size,in_dim),dtype=np.int32)
+    in_idx = np.zeros((batch_size,in_dim), dtype=np.int32)
     np.random.seed(42)
     accuracy = 0
     while True:
@@ -66,17 +66,17 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
         #print(start_valid)
         #print(test_data[item_key].values[start_valid])
         #print(in_idx)
-
         in_idx = test_data[item_key].values[start_valid]
         for i in range(minlen-1):
             out_idx = test_data[item_key].values[start_valid+i+1]
-            out_len = [len(i) for i in out_idx]
+            out_len = [len([i]) for i in out_idx]
+            
             if items is not None:
                 #uniq_out = np.unique(np.array(out_idx, dtype=np.int32))
                 #preds = pr.predict_next_batch(iters, in_idx, np.hstack([items, uniq_out[~np.in1d(uniq_out,items)]]), batch_size)
-                preds = pr.predict_next_batch(iters, in_idx, None, batch_size)
+                preds = pr.predict_next_batch(iters, in_idx, out_idx, None, batch_size)
             else:
-                preds = pr.predict_next_batch(iters, in_idx, None, batch_size)
+                preds = pr.predict_next_batch(iters, in_idx, out_idx, None, batch_size)
             if break_ties:
                 preds += np.random.rand(*preds.values.shape) * 1e-8
             #print(preds)
@@ -87,13 +87,14 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
                 targets = np.diag(preds.ix[in_idx].values)[valid_mask]
                 ranks = (others > targets).sum(axis=0) +1
             else:
-                #ranks = (preds.values.T[valid_mask].T > np.diag(preds.ix[in_idx].values)[valid_mask]).sum(axis=0) + 1
+                ranks = (preds.values.T[valid_mask].T > np.diag(preds.ix[in_idx].values)[valid_mask]).sum(axis=0) + 1
                 tops = get_topn(preds.as_matrix(),out_len)
-            #rank_ok = ranks < cut_off
-            #recall += rank_ok.sum()
-            #mrr += (1.0 / ranks[rank_ok]).sum()
-            evaluation_point_count += 1
-            accuracy += accurate(tops,out_idx)
+            rank_ok = ranks < cut_off
+            recall += rank_ok.sum()
+            mrr += (1.0 / ranks[rank_ok]).sum()
+            evaluation_point_count += len(ranks)
+            #evaluation_point_count += 1
+            #accuracy += accurate(tops,out_idx)
         start = start+minlen-1
         mask = np.arange(len(iters))[(valid_mask) & (end-start<=1)]
         for idx in mask:
@@ -104,8 +105,8 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
                 iters[idx] = maxiter
                 start[idx] = offset_sessions[maxiter]
                 end[idx] = offset_sessions[maxiter+1]
-    #return recall/evalutation_point_count, mrr/evalutation_point_count
-    return accuracy / evaluation_point_count
+    return recall/evaluation_point_count
+    #return accuracy / evaluation_point_count
 
 def get_topn(preds,n_list):
     #print(preds.shape)
@@ -163,7 +164,7 @@ def evaluate_sessions(pr, test_data, train_data, items=None, cut_off=20, session
     '''
     test_data.sort_values([session_key, time_key], inplace=True)
     items_to_predict = train_data[item_key].unique()
-    evalutation_point_count = 0
+    evaluation_point_count = 0
     prev_iid, prev_sid = -1, -1
     mrr, recall = 0.0, 0.0
     for i in range(len(test_data)):
