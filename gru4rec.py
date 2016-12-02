@@ -13,6 +13,7 @@ import pandas as pd
 from collections import OrderedDict
 srng = RandomStreams()
 import time
+
 class GRU4Rec:
     '''
     GRU4Rec(layers, n_epochs=10, batch_size=50, dropout_p_hidden=0.5, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.9, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='SessionId', item_key='ItemId', time_key='Time')
@@ -63,7 +64,7 @@ class GRU4Rec:
         header of the timestamp column in the input file (default: 'Time')
 
     '''
-    def __init__(self, layers, tree=None,tagdic=None, tag_to_idx=None,  n_epochs=10, batch_size=50, dropout_p_hidden=0.5, print_freq = 1000, learning_rate=0.05, momentum=0.0, adapt='adadelta', decay=0.9, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='user', item_key='tag', time_key='Time'):
+    def __init__(self, layers, tree=None,tagdic=None, tag_to_idx=None,  n_epochs=10, batch_size=50, dropout_p_hidden=0.5, print_freq = 1000, learning_rate=0.05, momentum=0.0, adapt='adadelta', decay=0.8, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='user', item_key='tag', time_key='Time'):
         self.tagdic = tagdic
         self.tree = tree
         self.tag_to_idx = tag_to_idx
@@ -142,7 +143,7 @@ class GRU4Rec:
 
     def sigmoid(self, X):
         return T.nnet.sigmoid(X)
-    #################################LOSS FUNCTIONS################################
+    #################################LOSS FUNCTIONS###############################
     def cross_entropy(self, yhat,t):
         #yhat = T.nnet.softmax(yhat)
         return T.cast(T.mean(-T.log(yhat)[T.arange(yhat.shape[0]),t]),theano.config.floatX)
@@ -154,7 +155,7 @@ class GRU4Rec:
     def top1(self, yhat):
         yhatT = yhat.T
         return T.cast(T.mean(T.mean(T.nnet.sigmoid(-T.diag(yhat)+yhatT)+T.nnet.sigmoid(yhatT**2), axis=0)-T.nnet.sigmoid(T.diag(yhat)**2)/self.batch_size), theano.config.floatX)
-    ###############################################################################
+    ##############################################################################
 
     def floatX(self, X):
         return np.asarray(X, dtype=theano.config.floatX)
@@ -299,9 +300,9 @@ class GRU4Rec:
         #sgrads = [T.grad(cost = cost, wrt = sparam) for sparam in sampled_params]
         updates = OrderedDict()
         if self.grad_cap>0:
-            norm=T.cast(T.sqrt(T.sum([T.sum([T.sum(g**2) for g in g_list]) for g_list in grads]) + T.sum([T.sum(g**2) for g in sgrads])), theano.config.floatX)
+            norm=T.cast(T.sqrt(T.sum([T.sum([T.sum(g**2) for g in g_list]) for g_list in grads])), theano.config.floatX)
             grads = [[T.switch(T.ge(norm, self.grad_cap), g*self.grad_cap/norm, g) for g in g_list] for g_list in grads]
-            sgrads = [T.switch(T.ge(norm, self.grad_cap), g*self.grad_cap/norm, g) for g in sgrads]
+            #sgrads = [T.switch(T.ge(norm, self.grad_cap), g*self.grad_cap/norm, g) for g in sgrads]
         for p_list, g_list in zip(params, grads):
             for p, g in zip(p_list, g_list):
                 if self.adapt:
