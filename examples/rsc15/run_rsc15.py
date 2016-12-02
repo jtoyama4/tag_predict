@@ -17,6 +17,7 @@ import pickle
 #P = '/home/toyama/tag_prediction/GRU4Rec/dataset/rsc15_test.txt'
 PATH_TO_TRAIN = '/home/toyama/tag_prediction/GRU4Rec/dataset/train_one_tag.pd'
 PATH_TO_TEST = '/home/toyama/tag_prediction/GRU4Rec/dataset/test_one_tag.pd'
+PATH_TO_KMEANS = '/home/toyama/tag_prediction/GRU4Rec/dataset/cluster.pkl'
 dic = '../../tag.dic'
 tree_path = '../../tree.dump'
 
@@ -26,7 +27,12 @@ if __name__ == '__main__':
     data = pd.read_pickle(PATH_TO_TRAIN)
     valid = pd.read_pickle(PATH_TO_TEST)
     itemids = data["tag"].unique()
-    
+
+    with open(PATH_TO_KMEANS,"rb") as f:
+        kmeans = pickle.load(f)
+    data['cluster'] = kmeans.labels_[:len(data)]
+    valid['cluster'] = kmeans.labels_[len(data):]
+
     with open(dic,"rb") as f:
         _tagdic = pickle.load(f)
     tagdicc = {}
