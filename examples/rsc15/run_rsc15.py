@@ -15,8 +15,8 @@ import evaluation
 import pickle
 
 #P = '/home/toyama/tag_prediction/GRU4Rec/dataset/rsc15_test.txt'
-PATH_TO_TRAIN = '/home/toyama/tag_prediction/GRU4Rec/dataset/train_one_tag.pd'
-PATH_TO_TEST = '/home/toyama/tag_prediction/GRU4Rec/dataset/test_one_tag.pd'
+PATH_TO_TRAIN = '/home/toyama/tag_prediction/GRU4Rec/dataset/train.pd'
+PATH_TO_TEST = '/home/toyama/tag_prediction/GRU4Rec/dataset/test.pd'
 PATH_TO_KMEANS = '/home/toyama/tag_prediction/GRU4Rec/dataset/cluster.pkl'
 dic = '../../tag.dic'
 tree_path = '../../tree.dump'
@@ -26,19 +26,24 @@ if __name__ == '__main__':
     #valid = pd.read_csv(PATH_TO_TEST, sep='\t', dtype={'ItemId':np.int64})
     data = pd.read_pickle(PATH_TO_TRAIN)
     valid = pd.read_pickle(PATH_TO_TEST)
-    itemids = data["tag"].unique()
+
+    #itemids = data["tag"].unique()
 
     with open(PATH_TO_KMEANS,"rb") as f:
         kmeans = pickle.load(f)
+    print(len(kmeans.labels_))
+    print(len(data))
+    print(len(valid))
     data['cluster'] = kmeans.labels_[:len(data)]
     valid['cluster'] = kmeans.labels_[len(data):]
-
+    print(data)
+    print(valid)
     with open(dic,"rb") as f:
         _tagdic = pickle.load(f)
-    tagdicc = {}
-    for k,v in _tagdic.items():
-        tagdicc[v] = k
     tagdic = {}
+    for k,v in _tagdic.items():
+        tagdic[v] = k
+    """tagdic = {}
     _tagdic = {}
     for n,i in enumerate(sorted(itemids)):
         tagdic[n] = tagdicc[i]
@@ -47,14 +52,15 @@ if __name__ == '__main__':
     for n,(k,r) in enumerate(valid.iterrows()):
         if r['tag'] not in itemids:
             erases.append(n)
-    valid = valid.drop(erases)
+    """
+    #valid = valid.drop(erases)
 
     with open(tree_path,"rb") as f:
         tree = pickle.load(f)
     
-    n_hidden = 50
+    n_hidden = 100
     print('Training GRU4Rec with {} hidden units'.format(n_hidden))
-    gru = gru4rec.GRU4Rec(tree=tree, tagdic=tagdic, tag_to_idx=_tagdic, print_freq=100, n_epochs=5, layers=[n_hidden], loss='cross-entropy', batch_size=50, dropout_p_hidden=0, learning_rate=0.07, momentum=0.0,grad_cap=0,decay=0.6)
+    gru = gru4rec.GRU4Rec(tree=tree, tagdic=tagdic, tag_to_idx=_tagdic, print_freq=1000, n_epochs=10, layers=[n_hidden], loss='cross-entropy', batch_size=50, dropout_p_hidden=0.5, learning_rate=0.1, momentum=0.0,grad_cap=0,decay=0.9)
     gru.fit(valid,max_len = len(tagdic))
     print("evaluation")
     

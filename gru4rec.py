@@ -64,10 +64,11 @@ class GRU4Rec:
         header of the timestamp column in the input file (default: 'Time')
 
     '''
-    def __init__(self, layers, tree=None,tagdic=None, tag_to_idx=None,  n_epochs=10, batch_size=50, dropout_p_hidden=0.5, print_freq = 1000, learning_rate=0.05, momentum=0.0, adapt='adadelta', decay=0.8, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='user', item_key='tag', time_key='Time'):
+    def __init__(self, layers, tree=None,tagdic=None, tag_to_idx=None,  n_epochs=10, batch_size=50, dropout_p_hidden=0.5, n_clusters=200, print_freq = 1000, learning_rate=0.05, momentum=0.0, adapt='adagrad', decay=0.8, grad_cap=0, sigma=0, init_as_normal=False, reset_after_session=True, loss='top1', hidden_act='tanh', final_act=None, train_random_order=False, lmbd=0.0, session_key='user', item_key='tag', time_key='Time'):
         self.tagdic = tagdic
         self.tree = tree
         self.tag_to_idx = tag_to_idx
+        self.n_clusters = n_clusters
         self.print_freq = print_freq
         self.layers = layers
         self.n_epochs = n_epochs
@@ -144,10 +145,10 @@ class GRU4Rec:
     def sigmoid(self, X):
         return T.nnet.sigmoid(X)
     #################################LOSS FUNCTIONS###############################
-    def cross_entropy(self, yhat,t):
+    def cross_entropy(self, yhat):
         #yhat = T.nnet.softmax(yhat)
-        return T.cast(T.mean(-T.log(yhat)[T.arange(yhat.shape[0]),t]),theano.config.floatX)
-        #return T.cast(T.mean(-T.log(T.diag(T.nnet.sigmoid(yhat)))), theano.config.floatX)
+        #return T.cast(T.mean(-T.log(yhat)[T.arange(yhat.shape[0]),t]),theano.config.floatX)
+        return T.cast(T.mean(-T.log(T.diag(T.nnet.sigmoid(yhat)))), theano.config.floatX)
 
     def bpr(self, yhat, negative):
         return T.cast(T.mean(-T.log(T.nnet.sigmoid(yhat - negative))), theano.config.floatX)
@@ -207,8 +208,8 @@ class GRU4Rec:
             self.Wrz.append(theano.shared(value=np.hstack(m2), borrow=True))
             self.Bh.append(theano.shared(value=np.zeros((self.layers[i] * 3,), dtype=theano.config.floatX), borrow=True))
             self.H.append(theano.shared(value=np.zeros((self.batch_size,self.layers[i]), dtype=theano.config.floatX), borrow=True))
-        self.Wy = self.init_weights((self.n_items, self.layers[-1]))
-        self.By = theano.shared(value=np.zeros((self.n_items,1), dtype=theano.config.floatX), borrow=True)
+        self.Wy = self.init_weights((self.n_clusters, self.layers[-1]))
+        self.By = theano.shared(value=np.zeros((self.n_clusters,1), dtype=theano.config.floatX), borrow=True)
         return offset_sessions
 
 
@@ -295,14 +296,14 @@ class GRU4Rec:
         gradient_scaling = T.cast(T.sqrt(acc_new + epsilon), theano.config.floatX)
         return grad / gradient_scaling
 
-    def RMSprop(self, cost, params, epsilon=1e-6):
+    def RMSprop(self, cost, params, full_params, sampled_params, sidxs, epsilon=1e-6):
         grads =  [T.grad(cost = cost, wrt = param) for param in params]
-        #sgrads = [T.grad(cost = cost, wrt = sparam) for sparam in sampled_params]
+        sgrads = [T.grad(cost = cost, wrt = sparam) for sparam in sampled_params]
         updates = OrderedDict()
         if self.grad_cap>0:
             norm=T.cast(T.sqrt(T.sum([T.sum([T.sum(g**2) for g in g_list]) for g_list in grads])), theano.config.floatX)
             grads = [[T.switch(T.ge(norm, self.grad_cap), g*self.grad_cap/norm, g) for g in g_list] for g_list in grads]
-            #sgrads = [T.switch(T.ge(norm, self.grad_cap), g*self.grad_cap/norm, g) for g in sgrads]
+            sgrads = [T.switch(T.ge(norm, self.grad_cap), g*self.grad_cap/norm, g) for g in sgrads]
         for p_list, g_list in zip(params, grads):
             for p, g in zip(p_list, g_list):
                 if self.adapt:
@@ -321,12 +322,10 @@ class GRU4Rec:
                     updates[p] = p + velocity2
                 else:
                     updates[p] = p * np.float32(1.0 - self.learning_rate * self.lmbd) - np.float32(self.learning_rate) * g
-        """for i in range(len(sgrads)):
-            print(i)
+        for i in range(len(sgrads)):
             g = sgrads[i]
             fullP = full_params[i]
-            #sample_idx = sidxs[i]
-            sample_idx=None
+            sample_idx = sidxs[i]
             sparam = sampled_params[i]
             if self.adapt:
                 if self.adapt == 'adagrad':
@@ -349,7 +348,7 @@ class GRU4Rec:
                 updates[fullP] = T.inc_subtensor(sparam, velocity2)
             else:
                 updates[fullP] = T.inc_subtensor(sparam, - delta)
-        """
+        
         return updates
     
 
@@ -360,18 +359,23 @@ class GRU4Rec:
             n = 1
             tops = np.argsort(pred)[-1::-1][:n]
             print("x")
-            for i in [x]:
-                print(self.tagdic[i],)
+            if isinstance(x,list):
+                if len(x) == 1:
+                    print(x)
+                for i in x:
+                    print(self.tagdic[i],)
+            else:
+                print("error")
+                sys.exit()
             print("\nPredict")
             for i in tops:
-                print(self.tagdic[i],)
+                print(i)
             print("\nActual")
             for i in [y]:
-                print(self.tagdic[i],)
+                print(i)
             print("----------------------------------")
 
     def get_input(self,input_idx,y,maxlen=None):
-        maxlen=self.n_items
         batch_size = len(input_idx)
         input_base = np.zeros((batch_size,maxlen),dtype="int32")
         y_base = np.zeros((batch_size,maxlen),dtype="int32")
@@ -409,7 +413,7 @@ class GRU4Rec:
             Sy = self.Wy[Y]
             SBy = self.By[Y]
             y = self.final_activation(T.dot(y, Sy.T) + SBy.flatten())
-            return H_new, y, [Sx, Sy, SBy]
+            return H_new, y, [Sy, SBy]
             #return H_new, y
         else:
             y = self.final_activation(T.dot(y, self.Wy.T) + self.By.flatten())
@@ -532,9 +536,8 @@ class GRU4Rec:
         self.predict = None
         self.error_during_train = False
         #itemids = data[self.item_key].unique()
-        itemids = data[self.item_key].unique()
-        for n,i in enumerate(sorted(itemids)):
-            self.itemtoidx[i] = n
+        originaldata = data
+        
         #itemids is a set of tags
         
         if not retrain:
@@ -557,27 +560,28 @@ class GRU4Rec:
             data.sort_values([self.session_key, self.time_key], inplace=True)
             offset_sessions = np.zeros(data[self.session_key].nunique()+1, dtype=np.int32)
             offset_sessions[1:] = data.groupby(self.session_key).size().cumsum()
-
+        print(data)
         X = T.imatrix("x")
         #X = T.ivector("X")
         #batch_idx = T.ivector("batch_idx")
         Y = T.ivector("Y")
         #negative_idx = T.ivector("negative_idx")
         
-        #H_new, Y_pred, sampled_params = self.model(X, self.H, None, self.dropout_p_hidden)
-        H_new, Y_pred = self.model(X, self.H, None, self.dropout_p_hidden)
-        cost = self.loss_function(Y_pred,Y)
+        H_new, Y_pred, sampled_params = self.model(X, self.H, Y, self.dropout_p_hidden)
+        #H_new, Y_pred = self.model(X, self.H, None, self.dropout_p_hidden)
+        cost = self.loss_function(Y_pred)
         #params = [self.Wx[0], self.Wy, self.By, self.Wh[0], self.Wrz[0], self.Bh[0]]
-        params = [self.Wx, [self.Wy], [self.By], self.Wh, self.Wrz, self.Bh]
-        #full_params = [self.Wx[0], self.Wy, self.By]
-        #sidxs = [X, Y, Y]
-        updates = self.RMSprop(cost, params)
+        params = [self.Wx, self.Wh, self.Wrz, self.Bh]
+        full_params = [self.Wy, self.By]
+        sidxs = [Y, Y]
+        updates = self.RMSprop(cost, params, full_params, sampled_params, sidxs)
         for i in range(len(self.H)):
             updates[self.H[i]] = H_new[i]
 
         train_function = function(inputs=[X, Y], outputs=[cost,Y_pred], updates=updates, allow_input_downcast=True, on_unused_input='ignore')
         #train_function = function(inputs=[X, Y], outputs=[cost, Y_pred], allow_input_downcast=True, on_unused_input='ignore')
         freqs = 0
+        losses = []
 
         for epoch in range(self.n_epochs):
             start_time = time.time()
@@ -594,10 +598,10 @@ class GRU4Rec:
 
             while not finished:
                 minlen = (end-start).min()
-                out_idx = np.array([self.itemtoidx[d] for d in data.tag.values[start]],dtype="int32")
+                #out_idx = np.array([self.itemtoidx[d] for d in data.tag.values[start]],dtype="int32")
                 for i in range(minlen-1):
-                    in_idx = out_idx
-                    out_idx = np.array([self.itemtoidx[dd] for dd in data.tag.values[start+i+1]],dtype="int32")
+                    in_idx = data.tag.values[start].copy()
+                    out_idx = data.cluster.values[start+i+1].copy()
                     y = out_idx
                     
                     #in_idx and y must be 1-of-k shape
@@ -637,8 +641,10 @@ class GRU4Rec:
                 self.error_during_train = True
                 return
             print('Epoch{}\tloss: {:.6f}'.format(epoch, avgc))
+            losses.append(avgc)
+            print(losses)
 
-    def predict_next_batch(self, session_ids, input_item_ids, out_idxs,predict_for_item_ids=None, batch=100):
+    def predict_next_batch(self, session_ids, input_item_ids, out_idxs,predict_for_item_ids=None, batch=20):
         '''
         Gives predicton scores for a selected set of items. Can be used in batch mode to predict for multiple independent events (i.e. events of different sessions) at once and thus speed up evaluation.
 
@@ -691,16 +697,18 @@ class GRU4Rec:
                 tmp[session_change] = 0
                 self.H[i].set_value(tmp, borrow=True)
             self.current_session=session_ids.copy()
-        in_idxs = [self.itemtoidx[d] for d in input_item_ids]
-        outs = [self.itemtoidx[int(d)] for d in out_idxs]
+        in_idxs = input_item_ids.copy()
+        print(in_idxs)
+        outs = out_idxs.copy()
         #print("in_idxs", in_idxs)
         if predict_for_item_ids is not None:
             #iIdxs = self.itemidmap[predict_for_item_ids]
             x,batch_idx,y_idx = self.get_input(in_idxs, predict_for_item_ids)
             preds = np.asarray(self.predict(x, batch_idx, y_idx)).T
+            sys.exit()
             return pd.DataFrame(data=preds)
         else:
             x = self.get_input(in_idxs,None,self.n_items)
             preds = np.asarray(self.predict(x)).T
-            self.print_example(preds,outs,in_idxs)
+            self.print_example(preds,outs,input_item_ids)
             return pd.DataFrame(data=preds)

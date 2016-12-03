@@ -67,9 +67,9 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
         #print(start_valid)
         #print(test_data[item_key].values[start_valid])
         #print(in_idx)
-        in_idx = test_data[item_key].values[start_valid]
+        in_idx = test_data['tag'].values[start_valid].copy()
         for i in range(minlen-1):
-            out_idx = test_data[item_key].values[start_valid+i+1]
+            out_idx = test_data["cluster"].values[start_valid+i+1].copy()
             out_len = [len([i]) for i in out_idx]
 
             if items is not None:
@@ -82,18 +82,18 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
                 preds += np.random.rand(*preds.values.shape) * 1e-8
             #print(preds)
             preds.fillna(0, inplace=True)
-            in_idx[valid_mask] = out_idx
+            in_idx[valid_mask] = test_data['tag'].values[start_valid+i+1].copy()
             if items is not None:
                 others = preds.ix[items].values.T[valid_mask].T
                 targets = np.diag(preds.ix[in_idx].values)[valid_mask]
                 ranks = (others > targets).sum(axis=0) +1
             else:
-                ranks = (preds.values.T[valid_mask].T > np.diag(preds.ix[in_idx].values)[valid_mask]).sum(axis=0) + 1
+                #ranks = (preds.values.T[valid_mask].T > np.diag(preds.ix[in_idx].values)[valid_mask]).sum(axis=0) + 1
                 tops = get_topn(preds.as_matrix(),out_len)
-            rank_ok = ranks < cut_off
-            recall += rank_ok.sum()
-            mrr += (1.0 / ranks[rank_ok]).sum()
-            evaluation_point_count += len(ranks)
+            #rank_ok = ranks < cut_off
+            #recall += rank_ok.sum()
+            #mrr += (1.0 / ranks[rank_ok]).sum()
+            #evaluation_point_count += len(ranks)
             evaluation_point_count_acc += 1
             accuracy += accurate(tops,out_idx)
         start = start+minlen-1
