@@ -150,8 +150,9 @@ class GRU4Rec:
         #return T.cast(T.mean(-T.log(yhat)[T.arange(yhat.shape[0]),t]),theano.config.floatX)
         return T.cast(T.mean(-T.log(T.diag(T.nnet.sigmoid(yhat)))), theano.config.floatX)
 
-    def bpr(self, yhat, negative):
-        return T.cast(T.mean(-T.log(T.nnet.sigmoid(yhat - negative))), theano.config.floatX)
+    def bpr(self, yhat):
+        #return T.cast(T.mean(-T.log(T.nnet.sigmoid(yhat - negative))), theano.config.floatX)
+        return T.cast(T.mean(-T.log(T.nnet.sigmoid(T.diag(yhat)-yhat.T))), theano.config.floatX)
 
     def top1(self, yhat):
         yhatT = yhat.T
@@ -471,7 +472,7 @@ class GRU4Rec:
         sample = data.ix[sample_user,1].copy()
         return sample
 
-    def reduce_sample(self,sample,size):
+    def reduce_sample(self, sample, size):
         for tag_idx in sample:
             tag = self.tagdic[tag_idx]
             if self.tree.get_node(tag) is None:
@@ -480,6 +481,20 @@ class GRU4Rec:
                     return sample
         sample = sample[:size]
         return sample
+
+    def const_input(self, in_idx):
+        for idx in in_idx:
+            for t in idx:
+                tag = self.tagdic[t]
+                if self.tree.get_node(tag) is None:
+                    idx.remove(t)
+                try:
+                    parent = self.tag_to_idx[tree.parent(tag).dat]
+                    if parent not in idx:
+                        idx.append(parent)
+                except:
+                    pass
+        return in_idx
 
     def compensate_sample(self, sample, size):
         #depth = [self.tree.depth(self.tagdic[i]) for i in sample]
@@ -605,6 +620,7 @@ class GRU4Rec:
                     y = out_idx
                     
                     #in_idx and y must be 1-of-k shape
+                    #in_idx = self.const_input(in_idx)
                     x, _ = self.get_input(in_idx,y,maxlen=self.n_items)
                     #negatives = self.get_negatives(batch_idx, y, data)
                     cost, y_sample = train_function(x,y)
@@ -708,6 +724,7 @@ class GRU4Rec:
             sys.exit()
             return pd.DataFrame(data=preds)
         else:
+            #in_idxs = self.const_input(in_idxs)
             x = self.get_input(in_idxs,None,self.n_items)
             preds = np.asarray(self.predict(x)).T
             self.print_example(preds,outs,input_item_ids)
