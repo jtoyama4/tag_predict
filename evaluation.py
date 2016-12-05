@@ -48,6 +48,8 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
     offset_sessions[1:] = test_data.groupby(session_key).size().cumsum()
     evaluation_point_count = 0
     evaluation_point_count_acc = 0
+    eval_change = 0
+    change_accuracy = 0.0
     mrr, recall = 0.0, 0.0
     if len(offset_sessions) - 1 < batch_size:
         batch_size = len(offset_sessions) - 1
@@ -57,7 +59,7 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
     end = offset_sessions[iters+1]
     in_idx = np.zeros((batch_size,in_dim), dtype=np.int32)
     np.random.seed(42)
-    accuracy = 0
+    accuracy = 0.0
     while True:
         valid_mask = iters >= 0
         if valid_mask.sum() != len(iters):
@@ -68,6 +70,7 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
         #print(test_data[item_key].values[start_valid])
         #print(in_idx)
         in_idx = test_data['tag'].values[start_valid].copy()
+        in_cluster = test_data['cluster'].values[start_valid].copy()
         for i in range(minlen-1):
             out_idx = test_data["cluster"].values[start_valid+i+1].copy()
             out_len = [len([i]) for i in out_idx]
@@ -95,7 +98,12 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
             #mrr += (1.0 / ranks[rank_ok]).sum()
             #evaluation_point_count += len(ranks)
             evaluation_point_count_acc += 1
-            accuracy += accurate(tops,out_idx)
+            accuracy += accurate(tops, out_idx)
+            change_acc = accurate(tops, out_idx, in_cluster)
+            if change_acc != 2:
+                change_accuracy += change_acc
+                eval_change += 1
+            in_cluster[valid_mask] = test_data['cluster'].values[start_valid+i+1].copy()
         start = start+minlen-1
         mask = np.arange(len(iters))[(valid_mask) & (end-start<=1)]
         for idx in mask:
@@ -107,32 +115,37 @@ def evaluate_sessions_batch(pr, test_data, items=None, cut_off=20, batch_size=10
                 start[idx] = offset_sessions[maxiter]
                 end[idx] = offset_sessions[maxiter+1]
     #return recall/evaluation_point_count
-    return accuracy / evaluation_point_count_acc
+    return accuracy / evaluation_point_count_acc, change_accuracy / eval_change
 
 def get_topn(preds,n_list):
     preds = preds.T
     res = []
     for n,pred in zip(n_list,preds):
-        tops = np.argsort(pred)[-1::-1][:n]
+        tops = np.argsort(pred)[-1::-1][:3]
         res.append(tops)
     return res
 
-def accurate(tops,out_idx):
+def accurate(tops, out_idx, in_cluster=None):
     acs = []
-    for y,t in zip(tops,out_idx):
-        y = [y]
-        t = [t]
+    count = 0
+    if in_cluster is not None:
         a = 0
-        assert len(y) == len(t)
-        for i in y:
-            if i in t:
-                a += 1
-        try:
-            accuracy = float(a) / len(y)  
-        except ZeroDivisionError:
-            accuracy = 0
-        acs.append(accuracy)
-    return sum(acs)/len(acs)
+        for y,t,inc in zip(tops, out_idx, in_cluster):
+            if t == inc:
+                continue
+            else:
+                count += 1
+                if t in y:
+                    a += 1
+        if count == 0:
+            return 2
+        return float(a) / count
+    a = 0
+    for y,t in zip(tops,out_idx):
+        count += 1
+        if t in y:
+            a += 1
+    return float(a)/count
 
 def evaluate_sessions(pr, test_data, train_data, items=None, cut_off=20, session_key='user', item_key='tag', time_key='Time'):    
     '''
