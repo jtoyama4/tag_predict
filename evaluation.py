@@ -121,7 +121,7 @@ def get_topn(preds,n_list):
     preds = preds.T
     res = []
     for n,pred in zip(n_list,preds):
-        tops = np.argsort(pred)[-1::-1][:3]
+        tops = np.argsort(pred)[-1::-1][:1]
         res.append(tops)
     return res
 
