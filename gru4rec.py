@@ -148,7 +148,7 @@ class GRU4Rec:
     def cross_entropy(self, yhat):
         #yhat = T.nnet.softmax(yhat)
         #return T.cast(T.mean(-T.log(yhat)[T.arange(yhat.shape[0]),t]),theano.config.floatX)
-        return T.cast(T.mean(-T.log(T.diag(T.nnet.sigmoid(yhat)))), theano.config.floatX)
+        return T.cast(T.mean(-T.log(T.diag(yhat))), theano.config.floatX)
 
     def bpr(self, yhat):
         #return T.cast(T.mean(-T.log(T.nnet.sigmoid(yhat - negative))), theano.config.floatX)
