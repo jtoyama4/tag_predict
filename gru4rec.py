@@ -620,7 +620,7 @@ class GRU4Rec:
                     y = out_idx
                     
                     #in_idx and y must be 1-of-k shape
-                    in_idx = self.const_input(in_idx)
+                    #in_idx = self.const_input(in_idx)
                     x, _ = self.get_input(in_idx,y,maxlen=self.n_items)
                     #negatives = self.get_negatives(batch_idx, y, data)
                     cost, y_sample = train_function(x,y)
@@ -724,7 +724,7 @@ class GRU4Rec:
             sys.exit()
             return pd.DataFrame(data=preds)
         else:
-            in_idxs = self.const_input(in_idxs)
+            #in_idxs = self.const_input(in_idxs)
             x = self.get_input(in_idxs,None,self.n_items)
             preds = np.asarray(self.predict(x)).T
             self.print_example(preds,outs,input_item_ids)

@@ -15,8 +15,8 @@ import evaluation
 import pickle
 
 #P = '/home/toyama/tag_prediction/GRU4Rec/dataset/rsc15_test.txt'
-PATH_TO_TRAIN = '/home/toyama/tag_prediction/GRU4Rec/dataset/train.pd'
-PATH_TO_TEST = '/home/toyama/tag_prediction/GRU4Rec/dataset/test.pd'
+PATH_TO_TRAIN = '/home/toyama/tag_prediction/GRU4Rec/dataset/train_change_cluster.pd'
+PATH_TO_TEST = '/home/toyama/tag_prediction/GRU4Rec/dataset/test_change_cluster.pd'
 PATH_TO_KMEANS = '/home/toyama/tag_prediction/GRU4Rec/dataset/cluster.pkl'
 dic = '../../tag.dic'
 tree_path = '../../tree.dump'
@@ -34,10 +34,9 @@ if __name__ == '__main__':
     print(len(kmeans.labels_))
     print(len(data))
     print(len(valid))
-    data['cluster'] = kmeans.labels_[:len(data)]
-    valid['cluster'] = kmeans.labels_[len(data):]
-    print(data)
-    print(valid)
+    #data['cluster'] = kmeans.labels_[:len(data)]
+    #valid['cluster'] = kmeans.labels_[len(data):]
+    
     with open(dic,"rb") as f:
         _tagdic = pickle.load(f)
     tagdic = {}
@@ -60,7 +59,7 @@ if __name__ == '__main__':
     
     n_hidden = 100
     print('Training GRU4Rec with {} hidden units'.format(n_hidden))
-    gru = gru4rec.GRU4Rec(tree=tree, tagdic=tagdic, tag_to_idx=_tagdic, print_freq=1000, n_epochs=8, layers=[n_hidden], loss='cross-entropy', batch_size=300, dropout_p_hidden=0.2, learning_rate=0.002, momentum=0.1,grad_cap=0,decay=0.9,adapt='rmsprop')
+    gru = gru4rec.GRU4Rec(tree=tree, tagdic=tagdic, tag_to_idx=_tagdic, print_freq=1000, n_epochs=5, layers=[n_hidden], loss='bpr', batch_size=50, dropout_p_hidden=0.2, learning_rate=0.005, momentum=0.1,grad_cap=0,decay=0.95,adapt='rmsprop')
     gru.fit(data,max_len = len(tagdic))
     print("evaluation")
     
