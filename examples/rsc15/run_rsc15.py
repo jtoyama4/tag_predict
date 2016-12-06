@@ -58,9 +58,9 @@ if __name__ == '__main__':
     with open(tree_path,"rb") as f:
         tree = pickle.load(f)
     
-    n_hidden = 80
+    n_hidden = 100
     print('Training GRU4Rec with {} hidden units'.format(n_hidden))
-    gru = gru4rec.GRU4Rec(tree=tree, tagdic=tagdic, tag_to_idx=_tagdic, print_freq=1000, n_epochs=8, layers=[n_hidden], loss='cross-entropy', batch_size=400, dropout_p_hidden=0, learning_rate=0.01, momentum=0,grad_cap=0,decay=0.99)
+    gru = gru4rec.GRU4Rec(tree=tree, tagdic=tagdic, tag_to_idx=_tagdic, print_freq=1000, n_epochs=8, layers=[n_hidden], loss='cross-entropy', batch_size=300, dropout_p_hidden=0.2, learning_rate=0.002, momentum=0.1,grad_cap=0,decay=0.9,adapt='rmsprop')
     gru.fit(data,max_len = len(tagdic))
     print("evaluation")
     
